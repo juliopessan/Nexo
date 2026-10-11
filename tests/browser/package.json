@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "",
   "scripts": {
-    "test": "node run.mjs"
+    "test": "node run.mjs && node reload.mjs"
   },
   "keywords": [],
   "author": "",

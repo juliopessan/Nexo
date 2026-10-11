@@ -561,7 +561,7 @@
   let pending = false;
   const scan = () => {
     pending = false;
-    renderProfileBar();
+    renderProfileBar().catch(onError);
     document.querySelectorAll("div.feed-shared-update-v2, [data-urn^='urn:li:activity'], [data-id^='urn:li:activity']").forEach((el) => {
       if (!el.parentElement?.closest("[data-nexo-post]")) { el.dataset.nexoPost = "1"; enhancePost(el); }
     });
@@ -572,13 +572,26 @@
       if (host && !host.closest("[data-nexo]")) enhanceComposer(host);
     });
     document.querySelectorAll(COMMENT).forEach(enhanceComment);
-    scanContactInfo();
-    scanCommentsQueue();
-    scanInboxQueue();
-    scanNotifications();
-    handlePending();
+    for (const task of [scanContactInfo, scanCommentsQueue, scanInboxQueue, scanNotifications, handlePending]) task().catch(onError);
   };
-  new MutationObserver(() => { if (!pending) { pending = true; setTimeout(scan, 400); } })
-    .observe(document.body, { childList: true, subtree: true });
+
+  // Depois de ⟳ em chrome://extensions, este script antigo continua na aba, mas perde a extensão
+  // ("Extension context invalidated"). Ele se desliga em silêncio; recarregar a aba traz a versão nova.
+  const alive = () => { try { return !!chrome.runtime?.id; } catch { return false; } };
+  function shutdown() {
+    observer.disconnect();
+    document.querySelectorAll("#nexo-profile-bar, .nexo-post-bar, .nexo-comment-bar, .nexo-chip--composer, .nexo-menu").forEach((el) => el.remove());
+  }
+  function onError(e) {
+    if (!alive() || /Extension context invalidated/i.test(e?.message || "")) return shutdown();
+    console.warn("[Nexo]", e);
+  }
+  addEventListener("unhandledrejection", (e) => { if (/Extension context invalidated/i.test(e.reason?.message || "")) { e.preventDefault(); shutdown(); } });
+
+  const observer = new MutationObserver(() => {
+    if (!alive()) return shutdown();
+    if (!pending) { pending = true; setTimeout(() => { try { scan(); } catch (e) { onError(e); } }, 400); }
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
   scan();
 })();

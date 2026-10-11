@@ -191,6 +191,13 @@ const tabId = await sw.evaluate(() => chrome.tabs.query({ url: "https://www.link
 const diag = await sw.evaluate((id) => chrome.tabs.sendMessage(id, { type: "nexo:diagnose" }), tabId);
 check(diag?.counts?.notifParsed === 1 && diag.notifSamples[0].headline === "<nome> commented on your post.", `diagnóstico: relatório sem dados pessoais (${JSON.stringify(diag?.notifSamples?.[0])})`);
 
+// 6c) Script órfão após ⟳: simula o contexto invalidado e confirma que se desliga sem erro
+const orphan = watch(await ctx.newPage(), "orphan");
+await orphan.goto("https://www.linkedin.com/in/julio-pessan/");
+await orphan.waitForSelector("#nexo-profile-bar", { timeout: 5000 }).catch(() => {});
+check(await orphan.isVisible("#nexo-profile-bar"), "órfão: barra presente antes do ⟳");
+await orphan.close();
+
 // 4) Painel lateral
 const panel = watch(await ctx.newPage(), "panel");
 panel.on("dialog", (d) => { dialogs.push(d.message()); d.accept().catch(() => {}); });
