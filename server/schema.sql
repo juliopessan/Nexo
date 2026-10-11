@@ -43,3 +43,7 @@ create table if not exists nexo_records (
   primary key (team_id, kind, id)
 );
 create index if not exists nexo_records_pull on nexo_records(team_id, seq);
+
+-- Login com Google (v0.7): contas podem não ter senha; vínculo pelo "sub" estável do Google
+alter table nexo_users alter column password_hash drop not null;
+alter table nexo_users add column if not exists google_sub text unique;

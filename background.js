@@ -13,6 +13,7 @@ const handlers = {
   "enrich": ({ id }) => NexoEnrich.enrich(id),
   "sync-now": () => NexoSync.syncNow(),
   "login": ({ email, password }) => NexoSync.login(email, password).then(() => NexoSync.syncNow()),
+  "login-google": ({ inviteCode }) => NexoSync.loginGoogle(inviteCode).then(() => NexoSync.syncNow()),
   "register": ({ email, password, inviteCode, signupCode }) => NexoSync.register(email, password, inviteCode, signupCode).then(() => NexoSync.syncNow()),
   "list-teams": () => NexoSync.listTeams(),
   "switch-team": ({ id }) => NexoSync.switchTeam(id).then((t) => NexoSync.syncNow().then(() => t)),

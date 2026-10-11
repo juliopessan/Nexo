@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Nexo — Assistente de engajamento no LinkedIn",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "Responda comentários e DMs com IA, curta e comente com um clique e bata suas metas diárias de engajamento. Você sempre aprova antes de enviar.",
   "permissions": [
     "storage",
     "sidePanel",
     "alarms",
-    "notifications"
+    "notifications",
+    "identity"
   ],
   "host_permissions": [
     "https://www.linkedin.com/*",
@@ -53,5 +54,6 @@
     "https://*/*",
     "http://localhost/*",
     "http://127.0.0.1/*"
-  ]
+  ],
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAySLakVPTSob9OFrAKlJI8orfWZQz5F74UyE/7CGyUFa1/cHm0hR6N0gXD94RzdPOBiYO20L2ZMCUXPixrATi8sXiFt1NdZ0T5UpCuK3Bp017TnA4BkD5new1WJ6n9vCqKjy9Y4l57NtVBXk7FnpfoQHMtc22x73bIoehijFsLG77Z3cA3BZ2d+/VNPoF0/WeT7zSRHcA6jG234zMb1jQ/u6fLQ9Hx2Vn2q16dxE9z9aXQOGM+mw1lQihxFQIr7mLg7MwJjKRabGe+1mwXLFUxdJNAKxEiqSNFDWeh+HE3gFPrGu0l+xwAnu5X6kGhlhhngNXyQa5GE+tSq/FAK2OBwIDAQAB"
 }

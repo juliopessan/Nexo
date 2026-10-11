@@ -23,6 +23,8 @@ services:
       DATABASE_URL: postgres://nexo:${POSTGRES_PASSWORD}@db:5432/nexo
       SIGNUP_CODE: ${SIGNUP_CODE:?defina SIGNUP_CODE no .env}
       SESSION_DAYS: ${SESSION_DAYS:-30}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_ALLOWED_EMAILS: ${GOOGLE_ALLOWED_EMAILS:-}
       TRUST_PROXY: "1"
     # Só no loopback: acessível pelo proxy da própria VPS (Caddy abaixo ou Nginx/Apache já existentes)
     ports: ["127.0.0.1:8787:8787"]

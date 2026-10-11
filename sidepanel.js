@@ -227,6 +227,31 @@ Inclua só itens que pedem ação (não inclua os "sem ação"). Convites entram
 Confirme no resumo a resposta da página: ela publica { type: "nexo:import:result", accepted, rejected }. Se não houver resposta, diga "Nexo não respondeu (extensão desativada ou token errado)". Isso NÃO envia nada no LinkedIn: só deixa os rascunhos na Caixa de entrada do Nexo para o Julio revisar.`;
 }
 
+// Backup local completo (contatos, templates, fila, metas, configurações e chaves): útil ao reinstalar a extensão
+$("#backupExport").onclick = async () => {
+  const all = await chrome.storage.local.get(null);
+  delete all.pendingInsert;
+  const a = Object.assign(document.createElement("a"), {
+    href: URL.createObjectURL(new Blob([JSON.stringify({ nexoBackup: 1, at: new Date().toISOString(), data: all }, null, 2)], { type: "application/json" })),
+    download: `nexo-backup-${new Date().toISOString().slice(0, 10)}.json`
+  });
+  a.click();
+};
+$("#backupImport").onchange = async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    const b = JSON.parse(await file.text());
+    if (b.nexoBackup !== 1 || typeof b.data !== "object") throw new Error("Arquivo não é um backup do Nexo.");
+    if (!confirm(`Restaurar o backup de ${b.at}? Os dados atuais desta extensão serão substituídos.`)) return;
+    await chrome.storage.local.clear();
+    await chrome.storage.local.set(b.data);
+    alert("Backup restaurado ✔");
+    render();
+  } catch (err) { alert(err.message); }
+  e.target.value = "";
+};
+
 async function renderConfig() {
   const st = await S.getSettings();
   await renderBridge(st);
@@ -242,7 +267,10 @@ async function renderConfig() {
   if (!st.session) {
     // Duas abas explícitas: Enter sempre executa a ação da aba visível (antes, Enter disparava "Entrar")
     const mode = box.dataset.mode || "register";
-    box.innerHTML = `<div class="row seg" id="authMode">
+    box.innerHTML = `<button id="googleBtn" class="google"><svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.7 13.2l7.9 6.2C12.5 13.6 17.8 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.5 5.8c4.4-4.1 7.1-10.1 7.1-17.5z"/><path fill="#FBBC05" d="M10.6 28.6c-.5-1.4-.8-3-.8-4.6s.3-3.2.8-4.6l-7.9-6.2C1 16.6 0 20.2 0 24s1 7.4 2.7 10.8l7.9-6.2z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.5-5.8c-2.1 1.4-4.9 2.3-8.4 2.3-6.2 0-11.5-4.1-13.4-9.9l-7.9 6.2C6.6 42.6 14.6 48 24 48z"/></svg>Entrar com Google</button>
+      <details><summary>Tenho um código de convite</summary><input id="googleInvite" placeholder="Código de convite (só para contas não autorizadas)"></details>
+      <p class="hint">ou com e-mail e senha:</p>
+      <div class="row seg" id="authMode">
         <button type="button" data-m="register" class="${mode === "register" ? "on" : ""}">Criar conta</button>
         <button type="button" data-m="login" class="${mode === "login" ? "on" : ""}">Já tenho conta</button></div>
       <form id="authForm">
@@ -254,6 +282,7 @@ async function renderConfig() {
         <p class="hint">Preencha um dos dois códigos.</p>` : ""}
         <button>${mode === "register" ? "Criar conta" : "Entrar"}</button>
       </form>`;
+    $("#googleBtn").onclick = () => run(ask({ type: "login-google", inviteCode: ($("#googleInvite").value || "").trim() }));
     box.querySelectorAll("#authMode button").forEach((b) => b.onclick = () => { box.dataset.mode = b.dataset.m; render(); });
     $("#authForm").onsubmit = (e) => {
       e.preventDefault();

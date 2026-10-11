@@ -8,6 +8,7 @@ const errors = [];
 let failed = false;
 const check = (c, m) => { console.log(c ? "ok  " : "FAIL", m); if (!c) failed = true; };
 
+const dialogs = [];
 const ctx = await chromium.launchPersistentContext(fs.mkdtempSync(path.join(os.tmpdir(), "nexo-")), {
   executablePath: process.env.CHROME_PATH || chromium.executablePath(),
   headless: true,
@@ -180,6 +181,7 @@ check(queue["c:7001:7002"]?.status === "done", "notificações: item marcado com
 
 // 4) Painel lateral
 const panel = watch(await ctx.newPage(), "panel");
+panel.on("dialog", (d) => { dialogs.push(d.message()); d.accept().catch(() => {}); });
 await panel.goto(`chrome-extension://${extId}/sidepanel.html`);
 await panel.waitForTimeout(500);
 check(await panel.isVisible("#inbox"), "painel: abre na Caixa de entrada");
@@ -292,6 +294,10 @@ if (process.env.DATABASE_URL) {
   await panel.click("nav >> text=Config");
   await panel.waitForSelector("#authForm", { timeout: 5000 });
   check(await panel.isVisible('#authMode button.on >> text=Criar conta'), "cadastro: abre na aba Criar conta");
+  check(await panel.isVisible("#googleBtn >> text=Entrar com Google"), "Google: botão Entrar com Google visível");
+  await panel.click("#googleBtn");
+  await panel.waitForTimeout(800);
+  check(!(await storage("settings")).settings.session, "Google: sem GOOGLE_CLIENT_ID no servidor, não cria sessão (erro explicado)");
   await panel.fill('#authForm [name="email"]', "julio.pessan.pessan@gmail.com");
   await panel.fill('#authForm [name="password"]', "senha-bem-forte");
   await panel.fill('#authForm [name="signupCode"]', "codigo-fundador");
@@ -304,7 +310,6 @@ if (process.env.DATABASE_URL) {
   await panel.waitForTimeout(1500);
   st = (await storage("settings")).settings;
   check(st.teamName === "Julio" && st.lastSyncAt, "cadastro: equipe criada e primeira sincronização feita");
-  panel.once("dialog", (d) => d.dismiss());
   await panel.click("#logout");
   await panel.waitForTimeout(800);
   await panel.click('#authMode >> text=Já tenho conta');
@@ -315,6 +320,9 @@ if (process.env.DATABASE_URL) {
   check((await storage("settings")).settings.session?.email === "julio.pessan.pessan@gmail.com", "login: aba Já tenho conta entra com a conta criada");
   srv.server.close(); await srv.pool.end();
 }
+
+check(sw.url().startsWith("chrome-extension://lgeenajlpmgihmgnobifccidbccooahc/"), `ID fixo da extensão (${extId})`);
+check(dialogs.some((m) => /GOOGLE_CLIENT_ID/.test(m)) || !process.env.DATABASE_URL, "Google: mensagem explica que falta configurar o servidor");
 
 check(errors.length === 0, `sem erros de JS (${errors.length})`);
 errors.forEach((e) => console.log("   ", e));

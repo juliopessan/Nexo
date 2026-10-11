@@ -31,6 +31,26 @@ const NexoSync = (() => {
     if (keep) await useTeam(keep);
   }
 
+  // Entrar com Google: o Chrome abre a tela de contas do Google e devolve um ID token, que o SERVIDOR verifica
+  async function loginGoogle(inviteCode) {
+    const { google } = await call("/auth/config", { auth: false });
+    if (!google?.clientId) throw new Error("O servidor ainda não tem o login com Google configurado (GOOGLE_CLIENT_ID).");
+    const nonce = crypto.randomUUID();
+    const redirect = chrome.identity.getRedirectURL();
+    const url = "https://accounts.google.com/o/oauth2/v2/auth?" + new URLSearchParams({
+      client_id: google.clientId, response_type: "id_token", redirect_uri: redirect,
+      scope: "openid email profile", nonce, prompt: "select_account"
+    });
+    let back;
+    try { back = await chrome.identity.launchWebAuthFlow({ url, interactive: true }); }
+    catch (e) { throw new Error(/did not approve|canceled|cancelled/i.test(e.message) ? "Login com Google cancelado." : `Google: ${e.message}. Confira se ${redirect} está nos URIs de redirecionamento do cliente OAuth.`); }
+    const params = new URLSearchParams(new URL(back).hash.slice(1));
+    if (params.get("error")) throw new Error(`Google: ${params.get("error")}`);
+    const idToken = params.get("id_token");
+    if (!idToken) throw new Error("O Google não devolveu o token de login.");
+    return startSession(await call("/auth/google", { body: { idToken, nonce, inviteCode: inviteCode || undefined }, auth: false }));
+  }
+
   const login = async (email, password) => startSession(await call("/auth/login", { body: { email, password }, auth: false }));
   const register = async (email, password, inviteCode, signupCode) =>
     startSession(await call("/auth/register", { body: { email, password, inviteCode: inviteCode || undefined, signupCode: signupCode || undefined }, auth: false }));
@@ -95,5 +115,5 @@ const NexoSync = (() => {
     return { pulled: incoming.length, pushed: dirty.length };
   }
 
-  return { login, register, logout, createTeam, joinTeam, listTeams, switchTeam, teamInfo, rotateInvite, syncNow };
+  return { login, loginGoogle, register, logout, createTeam, joinTeam, listTeams, switchTeam, teamInfo, rotateInvite, syncNow };
 })();

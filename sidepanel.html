@@ -56,6 +56,10 @@
       <label>Chave da Exa (exa.ai)<input name="exaKey" type="password" autocomplete="off"></label>
       <button>Salvar</button>
     </form>
+    <h2>💾 Backup</h2>
+    <div class="row"><button class="ghost" id="backupExport">Exportar backup</button>
+      <label class="ghost filebtn">Importar backup<input type="file" id="backupImport" accept="application/json" hidden></label></div>
+    <p class="hint">O backup inclui suas chaves de API: guarde em local seguro.</p>
     <p class="hint">As chaves ficam só neste navegador e são usadas pelo service worker do Nexo, nunca pela página do LinkedIn.</p>
   </section>
   <section id="detail" hidden></section>

@@ -46,9 +46,13 @@ NEXO_DOMAIN=$DOMAIN
 POSTGRES_PASSWORD=$(openssl rand -hex 24)
 SIGNUP_CODE=$(openssl rand -hex 12)
 SESSION_DAYS=30
+GOOGLE_CLIENT_ID=
+GOOGLE_ALLOWED_EMAILS=
 ENV
 else
   sed -i "s/^NEXO_DOMAIN=.*/NEXO_DOMAIN=$DOMAIN/" .env
+  # .env de versões anteriores: acrescenta as chaves novas sem mexer nas existentes
+  for k in GOOGLE_CLIENT_ID GOOGLE_ALLOWED_EMAILS; do grep -q "^$k=" .env || echo "$k=" >> .env; done
 fi
 
 if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then

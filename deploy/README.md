@@ -38,3 +38,22 @@ Coloque-a atrás do seu proxy HTTPS (Nginx/Caddy) e use um usuário de banco ded
 - Atualizar: `git pull && docker compose up -d --build`.
 - Logs: `docker compose logs -f api`.
 - Trocar o convite (se vazar): botão **Novo convite** (só o dono da equipe).
+
+## Entrar com Google
+1. Acesse https://console.cloud.google.com/ e crie um projeto (ex.: "Nexo").
+2. **APIs e serviços → Tela de consentimento OAuth**: tipo **Externo**, nome "Nexo", seu e-mail de suporte. Em **Usuários de teste**, adicione os e-mails que vão entrar.
+3. **APIs e serviços → Credenciais → Criar credenciais → ID do cliente OAuth**:
+   - Tipo: **Aplicativo da Web**
+   - **URIs de redirecionamento autorizados:** `https://lgeenajlpmgihmgnobifccidbccooahc.chromiumapp.org/`
+4. Copie o **ID do cliente** (termina em `.apps.googleusercontent.com`). Ele não é secreto. A *chave secreta do cliente* não é usada.
+5. Na VPS:
+   ```bash
+   cd /opt/nexo/deploy
+   sed -i "s|^GOOGLE_CLIENT_ID=.*|GOOGLE_CLIENT_ID=SEU_ID.apps.googleusercontent.com|" .env
+   sed -i "s|^GOOGLE_ALLOWED_EMAILS=.*|GOOGLE_ALLOWED_EMAILS=seu.email@gmail.com|" .env
+   docker compose -f docker-compose.yml -f docker-compose.traefik.yml up -d api
+   ```
+6. Na extensão: **Config → Entrar com Google**.
+
+O ID da extensão é fixo (`lgeenajlpmgihmgnobifccidbccooahc`, definido pela chave pública no `manifest.json`), então o URI de redirecionamento vale para qualquer computador.
+E-mails fora de `GOOGLE_ALLOWED_EMAILS` só entram com um **código de convite** de uma equipe.
