@@ -24,8 +24,11 @@ services:
       SIGNUP_CODE: ${SIGNUP_CODE:?defina SIGNUP_CODE no .env}
       SESSION_DAYS: ${SESSION_DAYS:-30}
       TRUST_PROXY: "1"
+    # Só no loopback: acessível pelo proxy da própria VPS (Caddy abaixo ou Nginx/Apache já existentes)
+    ports: ["127.0.0.1:8787:8787"]
 
   caddy:
+    profiles: [caddy]   # só sobe quando as portas 80/443 estão livres
     image: caddy:2-alpine
     restart: unless-stopped
     depends_on: [api]

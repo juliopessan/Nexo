@@ -48,8 +48,20 @@ if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
   echo "==> Liberando 80/443 no ufw"; ufw allow 80/tcp >/dev/null; ufw allow 443/tcp >/dev/null
 fi
 
+# Portas 80/443 ocupadas por um servidor web já existente? Então não sobe o Caddy:
+# a API fica em 127.0.0.1:8787 e o proxy existente encaminha para ela.
+busy=$( (ss -ltnpH 2>/dev/null || true) | awk '$4 ~ /:(80|443)$/' )
+docker compose rm -sf caddy >/dev/null 2>&1 || true
+if [ -n "$busy" ] && ! echo "$busy" | grep -q docker-proxy; then
+  OWNER=$(echo "$busy" | grep -o 'users:(("[^"]*' | head -1 | sed 's/.*"//')
+  echo "==> Portas 80/443 em uso por: ${OWNER:-desconhecido}. Usando o servidor web existente."
+  PROFILE=""
+else
+  PROFILE="--profile caddy"
+fi
+
 echo "==> Subindo containers"
-docker compose up -d --build
+docker compose $PROFILE up -d --build --remove-orphans
 
 echo "==> Aguardando a API"
 i=0
@@ -60,8 +72,28 @@ done
 CRON="0 3 * * * $DIR/deploy/backup.sh >/dev/null 2>&1"
 ( crontab -l 2>/dev/null | grep -v "deploy/backup.sh"; echo "$CRON" ) | crontab -
 
+if [ -z "$PROFILE" ]; then
+  echo
+  echo "API rodando em http://127.0.0.1:8787 (só local). Falta o HTTPS no seu servidor web."
+  case "${OWNER:-}" in
+    nginx*)
+      echo "Nginx detectado. Crie /etc/nginx/sites-available/nexo com:"
+      echo "  server { listen 80; server_name $DOMAIN;"
+      echo "    location / { proxy_pass http://127.0.0.1:8787; proxy_set_header Host \$host;"
+      echo "      proxy_set_header X-Forwarded-For \$remote_addr; proxy_set_header X-Forwarded-Proto \$scheme; } }"
+      echo "Depois: ln -s /etc/nginx/sites-available/nexo /etc/nginx/sites-enabled/ && nginx -t && systemctl reload nginx"
+      echo "HTTPS: certbot --nginx -d $DOMAIN";;
+    apache2*|httpd*)
+      echo "Apache detectado: a2enmod proxy proxy_http e crie um VirtualHost para $DOMAIN com"
+      echo "  ProxyPass / http://127.0.0.1:8787/  e  ProxyPassReverse / http://127.0.0.1:8787/"
+      echo "HTTPS: certbot --apache -d $DOMAIN";;
+    *)
+      echo "Configure o proxy reverso existente para encaminhar https://$DOMAIN -> http://127.0.0.1:8787";;
+  esac
+  echo "Teste local agora: curl http://127.0.0.1:8787/health"
+fi
 echo
-echo "Nexo no ar. Teste: curl https://$DOMAIN/health"
+echo "Teste: curl https://$DOMAIN/health"
 echo "Na extensão (Config): servidor https://$DOMAIN"
 echo "Código de cadastro (fundadores): $(grep ^SIGNUP_CODE= .env | cut -d= -f2)"
 echo "Guarde-o; ele também fica em $DIR/deploy/.env"

@@ -18,7 +18,7 @@ docker compose up -d --build
 curl https://SEU_DOMINIO/health   # {"ok":true}
 ```
 
-O Caddy emite o certificado HTTPS sozinho na primeira requisição.
+O Caddy emite o certificado HTTPS sozinho na primeira requisição. Se as portas 80/443 já estiverem em uso (Nginx/Apache), o instalador não sobe o Caddy: a API fica em `127.0.0.1:8787` e ele mostra a configuração para o seu servidor web.
 
 ## Já tenho PostgreSQL na VPS
 Rode só a API apontando para o seu banco (o schema é criado automaticamente no primeiro boot):
