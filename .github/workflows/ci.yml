@@ -30,6 +30,12 @@ jobs:
         working-directory: server
       - name: Ponta a ponta (extensão + servidor + Postgres)
         run: node tests/e2e.mjs
+      - name: Extensão no Chromium real (páginas no formato do LinkedIn)
+        working-directory: tests/browser
+        run: |
+          npm ci
+          npx playwright-core install --with-deps chromium
+          npm test
       - name: Empacotar extensão
         run: ./scripts/build-extension.sh
       - uses: actions/upload-artifact@v4

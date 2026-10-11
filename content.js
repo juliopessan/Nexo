@@ -109,20 +109,33 @@
     document.body.appendChild(bar);
   }
 
+  // Seletores com fallback: classes do LinkedIn mudam com frequência, atributos de acessibilidade mudam menos.
+  const SEL = {
+    like: 'button[aria-label*="React Like"], button[aria-label*="Gostei"], button[aria-label*="Reagir"], button[aria-label*="Like"], button.react-button__trigger',
+    comment: 'button[aria-label*="Comment"], button[aria-label*="Comentar"], button[aria-label*="comentário"]',
+    editor: ".comments-comment-box .ql-editor, .comments-comment-texteditor [contenteditable='true'], [contenteditable='true'][role='textbox'], [contenteditable='true']",
+    postText: ".update-components-text, .feed-shared-update-v2__description, .feed-shared-inline-show-more-text, [data-test-id='main-feed-activity-card__commentary'], .break-words"
+  };
+
   // 2) Feed: ações por post (salvar autor, curtir+registrar, rascunho de comentário)
   function postAuthor(post) {
     const a = post.querySelector('.update-components-actor__meta-link, a.update-components-actor__image, a[href*="/in/"]');
     const id = NexoStore.idFromUrl(a?.href);
     if (!id) return null;
-    const name = (text(".update-components-actor__title span[aria-hidden='true']", post) || text(".update-components-actor__title", post)).split("\n")[0];
-    return { id, name, headline: text(".update-components-actor__description span[aria-hidden='true']", post), url: `https://www.linkedin.com/in/${id}/` };
+    // Fallback: primeira linha de texto do link do autor (interfaces sem as classes antigas)
+    const name = (text(".update-components-actor__title span[aria-hidden='true']", post) || text(".update-components-actor__title", post)
+      || [...post.querySelectorAll(`a[href*="/in/${id}"]`)].map((x) => x.innerText.trim()).find(Boolean) || "").split("\n")[0].trim();
+    const headline = text(".update-components-actor__description span[aria-hidden='true']", post)
+      || ((a.innerText || "").split("\n").map((l) => l.trim()).filter(Boolean)[1] || "");
+    return { id, name, headline, url: `https://www.linkedin.com/in/${id}/` };
   }
 
   function enhancePost(post) {
     if (post.dataset.nexo) return;
     post.dataset.nexo = "1";
-    const actions = post.querySelector(".feed-shared-social-action-bar, .social-details-social-actions");
-    if (!actions) return;
+    const actions = post.querySelector(".feed-shared-social-action-bar, .social-details-social-actions")
+      || post.querySelector(SEL.like)?.parentElement;
+    if (!actions) { delete post.dataset.nexo; return; } // ainda carregando: tenta no próximo scan
     const bar = Object.assign(document.createElement("div"), { className: "nexo-post-bar" });
     bar.append(
       chip("＋ Autor no CRM", async () => {
@@ -133,7 +146,7 @@
         toast(`${a.name} salvo ✔`);
       }),
       chip("👍 Curtir", async () => {
-        const like = post.querySelector('button[aria-label*="React Like"], button[aria-label*="Gostei"], button.react-button__trigger');
+        const like = post.querySelector(SEL.like);
         if (!like) return toast("Botão de curtir não encontrado");
         if (like.getAttribute("aria-pressed") !== "true") like.click();
         const a = postAuthor(post);
@@ -142,9 +155,9 @@
       }),
       chip("💬 Comentar com template", async (btn) => {
         const a = postAuthor(post) || {};
-        post.querySelector('button[aria-label*="Comment"], button[aria-label*="Comentar"]')?.click();
+        post.querySelector(SEL.comment)?.click();
         pickTemplate(btn, "comment", a, async (value) => {
-          const editor = await waitFor(() => post.querySelector(".comments-comment-box .ql-editor, .comments-comment-texteditor [contenteditable='true']"));
+          const editor = await waitFor(() => post.querySelector(SEL.editor));
           if (!editor) return toast("Abra a caixa de comentário");
           insertInto(editor, value);
           if (a.id) await NexoStore.logActivity(a.id, "comment", "Rascunho de comentário inserido");
@@ -152,12 +165,12 @@
       }),
       chip("✨ Comentar com IA", async (btn) => {
         const a = postAuthor(post) || {};
-        const postText = text(".update-components-text, .feed-shared-update-v2__description, .feed-shared-inline-show-more-text", post).slice(0, 4000);
+        const postText = text(SEL.postText, post).slice(0, 4000);
         if (!postText) return toast("Post sem texto para analisar");
         const { contacts } = await NexoStore.get();
         pickAI(btn, "comment", { postText, author: a.name, contact: slim(contacts[a.id]) }, async (value) => {
-          post.querySelector('button[aria-label*="Comment"], button[aria-label*="Comentar"]')?.click();
-          const editor = await waitFor(() => post.querySelector(".comments-comment-box .ql-editor, .comments-comment-texteditor [contenteditable='true']"));
+          post.querySelector(SEL.comment)?.click();
+          const editor = await waitFor(() => post.querySelector(SEL.editor));
           if (!editor) return toast("Abra a caixa de comentário");
           insertInto(editor, value);
           if (a.id) await NexoStore.logActivity(a.id, "comment", "Comentário sugerido por IA inserido");
@@ -169,9 +182,11 @@
 
   // 3) Mensagens: templates de DM no composer
   function conversationContact() {
-    const link = $('.msg-thread__link-to-profile, .msg-overlay-bubble-header a[href*="/in/"], a.msg-thread__link-to-profile');
+    const link = $('.msg-thread__link-to-profile, .msg-overlay-bubble-header a[href*="/in/"], a.msg-thread__link-to-profile')
+      || [...document.querySelectorAll('main a[href*="/in/"]')].find((x) => x.innerText.trim());
     const id = NexoStore.idFromUrl(link?.href);
-    const name = text(".msg-entity-lockup__entity-title, .msg-overlay-bubble-header__title, h2.msg-entity-lockup__entity-title");
+    const name = text(".msg-entity-lockup__entity-title, .msg-overlay-bubble-header__title, h2.msg-entity-lockup__entity-title")
+      || (link?.innerText || "").split("\n")[0].trim();
     return { id, name };
   }
 
@@ -248,8 +263,15 @@
   const scan = () => {
     pending = false;
     renderProfileBar();
-    document.querySelectorAll("div.feed-shared-update-v2, div[data-urn^='urn:li:activity']").forEach(enhancePost);
+    document.querySelectorAll("div.feed-shared-update-v2, [data-urn^='urn:li:activity'], [data-id^='urn:li:activity']").forEach((el) => {
+      if (!el.parentElement?.closest("[data-nexo-post]")) { el.dataset.nexoPost = "1"; enhancePost(el); }
+    });
     document.querySelectorAll("form.msg-form").forEach(enhanceComposer);
+    // Fallback do composer: caixa editável de mensagem fora do form antigo
+    document.querySelectorAll('[contenteditable="true"][aria-label*="mensagem" i], [contenteditable="true"][aria-label*="message" i]').forEach((ed) => {
+      const host = ed.closest("form") || ed.parentElement;
+      if (host && !host.closest("[data-nexo]")) enhanceComposer(host);
+    });
     scanContactInfo();
   };
   new MutationObserver(() => { if (!pending) { pending = true; setTimeout(scan, 400); } })

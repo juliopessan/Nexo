@@ -52,6 +52,7 @@ cd server && npm ci && cd ..
 export DATABASE_URL=postgres://nexo:nexo@localhost/nexo   # Postgres local de teste (é limpo pelos testes!)
 (cd server && npm test)       # integração da API: auth, convites, permissões, LWW, concorrência
 node tests/e2e.mjs            # 2 clientes da extensão sincronizando via servidor real
+(cd tests/browser && npm ci && npm test)  # extensão carregada no Chromium em páginas no formato do LinkedIn
 ./scripts/build-extension.sh  # gera dist/nexo-<versão>.zip para a Chrome Web Store
 ```
 A CI (`.github/workflows/ci.yml`) roda tudo isso em cada push e PR, com Postgres de verdade.
