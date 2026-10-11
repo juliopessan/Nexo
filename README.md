@@ -10,6 +10,8 @@ O Nexo cuida do que dá trabalho no LinkedIn: **responder comentários, curtir, 
 5. **Metas diárias** de curtidas, comentários, respostas e DMs, com progresso no topo do painel.
 6. **Pessoas e Pipeline:** um CRM leve de quem engaja com você, com notas, tags, follow-ups e exportação CSV.
 
+7. **Tarefa agendada do Claude (computer use):** a sua tarefa diária, que usa o Claude in Chrome, lê o LinkedIn inteiro, classifica e escreve os rascunhos. No final, ela entrega tudo na Caixa de entrada do Nexo pela ponte (*Config → Tarefa agendada do Claude*). A ponte exige token de pareamento, só aceita links do LinkedIn e nunca envia nada.
+
 **Primeiro passo:** abra o seu próprio perfil no LinkedIn e clique em **⭐ Este sou eu**. É assim que o Nexo sabe quais posts são seus.
 
 ## Instalar (modo desenvolvedor)

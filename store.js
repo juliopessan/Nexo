@@ -62,14 +62,15 @@ const NexoStore = (() => {
     return queue;
   }
   // Adiciona itens novos sem reabrir os que o usuário já resolveu ou ignorou
-  async function enqueue(items) {
+  async function enqueue(items, { refreshDrafts = false } = {}) {
     const queue = await getQueue();
     let added = 0, changed = false;
     for (const it of items) {
       const cur = queue[it.id];
       if (cur) {
         const priority = Math.min(cur.priority || 2, it.priority || 2);
-        if (cur.status === "open" && (cur.text !== it.text || priority !== cur.priority)) {
+        if (refreshDrafts && it.draft && cur.status !== "open") { queue[it.id] = { ...cur, ...it, priority, status: "open", seenAt: Date.now() }; changed = true; continue; }
+        if (cur.status === "open" && (cur.text !== it.text || priority !== cur.priority || (refreshDrafts && it.draft !== cur.draft))) {
           queue[it.id] = { ...cur, ...it, postText: it.postText || cur.postText, priority, status: "open" };
           changed = true;
         }

@@ -466,6 +466,50 @@
     });
   }
 
+  // Ponte com a tarefa agendada do Claude (Claude in Chrome): a tarefa roda, numa aba do LinkedIn,
+  //   window.postMessage({ type: "nexo:import", token, items: [...] }, "*")
+  // e os rascunhos entram na Caixa de entrada. Sem o token pareado na aba Config, a mensagem é ignorada:
+  // qualquer script da página poderia chamar postMessage. Nada é enviado: os itens só viram rascunhos para revisão.
+  const KINDS = new Set(["dm", "comment", "invite"]);
+  const CLASSES = new Set(["lead", "recrutador", "parceria", "peer", "substancia", "apoio", "ruido", "spam", "outro"]);
+  const str = (v, max) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+  function parseImportItem(raw) {
+    if (!raw || typeof raw !== "object" || !KINDS.has(raw.kind)) return null;
+    let url;
+    try { url = new URL(raw.url); } catch { return null; }
+    if (url.origin !== "https://www.linkedin.com") return null; // só links do LinkedIn
+    const name = str(raw.author?.name, 120);
+    const text = str(raw.text, 2000);
+    if (!name || !text) return null;
+    const path = (/\/messaging\/thread\/[^/?#]+/.exec(url.pathname) || [])[0];
+    const cUrn = url.searchParams.get("commentUrn");
+    const id = raw.kind === "dm" && path ? `dm:${path}` : raw.kind === "comment" && cUrn ? `c:${commentKey(cUrn)}` : `t:${hashId(`${raw.kind}|${url.pathname}|${name}|${text}`)}`;
+    const cls = CLASSES.has(raw.classification) ? raw.classification : "outro";
+    const urgency = [1, 2, 3].includes(raw.urgency) ? raw.urgency : 2;
+    return {
+      id, kind: raw.kind, url: url.href, targetId: cUrn ? commentKey(cUrn) : null,
+      author: { name, headline: str(raw.author?.headline, 200) || undefined },
+      text, postText: str(raw.postText, 3000) || undefined,
+      classification: cls, why: str(raw.why, 300) || undefined,
+      draft: str(raw.draft, 3000) || undefined,
+      priority: urgency === 1 || ["lead", "recrutador"].includes(cls) ? 1 : 2,
+      source: "claude-triage"
+    };
+  }
+  window.addEventListener("message", async (e) => {
+    if (e.source !== window || e.data?.type !== "nexo:import") return;
+    const { bridgeToken } = await NexoStore.getSettings();
+    const reply = (r) => window.postMessage({ type: "nexo:import:result", ...r }, location.origin);
+    if (!bridgeToken || e.data.token !== bridgeToken) return reply({ ok: false, error: "token inválido ou ponte desativada" });
+    const raw = Array.isArray(e.data.items) ? e.data.items.slice(0, 100) : [];
+    const items = raw.map(parseImportItem).filter(Boolean);
+    // Rascunhos novos substituem os antigos do mesmo item (a triagem de hoje é mais atual)
+    const added = await NexoStore.enqueue(items, { refreshDrafts: true });
+    await NexoStore.saveSettings({ lastBridgeImport: { at: Date.now(), received: raw.length, accepted: items.length } });
+    reply({ ok: true, received: raw.length, accepted: items.length, added, rejected: raw.length - items.length });
+    if (items.length) toast(`Nexo: ${items.length} rascunho(s) da triagem do Claude na Caixa de entrada`);
+  });
+
   // LinkedIn é SPA: observa mudanças de DOM com debounce
   let pending = false;
   const scan = () => {

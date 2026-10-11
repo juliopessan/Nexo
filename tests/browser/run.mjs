@@ -243,6 +243,42 @@ check(st.reply === 3 && st.like >= 3 && st.comment >= 2 && st.dm >= 2, `metas: c
 await panel.click("nav >> text=Config");
 check(await panel.isVisible("#serverForm"), "painel: aba Config abre");
 
+// 7) Ponte com a tarefa agendada do Claude
+await panel.click("#bridgeOn");
+await panel.waitForTimeout(300);
+const token = (await storage("settings")).settings.bridgeToken;
+const snippet = await panel.inputValue("#bridgeSnippet");
+check(token?.length === 36 && snippet.includes(token) && snippet.includes("nexo:import"), "ponte: token gerado e instruções com o token");
+await page.goto("https://www.linkedin.com/feed/");
+await page.waitForTimeout(500);
+const send = (tok, items) => page.evaluate(([tok, items]) => new Promise((res) => {
+  const on = (e) => { if (e.data?.type === "nexo:import:result") { removeEventListener("message", on); res(e.data); } };
+  addEventListener("message", on);
+  window.postMessage({ type: "nexo:import", token: tok, items }, "*");
+  setTimeout(() => res(null), 3000);
+}), [tok, items]);
+const triage = [
+  { kind: "dm", url: "https://www.linkedin.com/messaging/thread/2-rec/", author: { name: "Laura Recruiter", headline: "Talent @ Globex" },
+    text: "Hi Julio, we have a Lead GenAI Architect role, 100% remote.", classification: "recrutador", urgency: 1, why: "Vaga remota, sem faixa", draft: "Thanks Laura! What is the USD range and is it fully remote?" },
+  { kind: "comment", url: "https://www.linkedin.com/feed/update/urn:li:activity:8001/?commentUrn=urn%3Ali%3Acomment%3A%28activity%3A8001%2C8002%29",
+    author: { name: "Pedro Lead" }, text: "Vocês fazem isso para bancos?", classification: "lead", urgency: 1, draft: "Fazemos sim, Pedro. Te chamo por DM?" },
+  { kind: "dm", url: "https://evil.example.com/phish", author: { name: "X" }, text: "clique aqui", draft: "ok" },
+  { kind: "invite", url: "https://www.linkedin.com/in/ana-convite/", author: { name: "Ana Convite", headline: "CTO" }, text: "Nota: adorei seu post", classification: "peer", urgency: 3 }
+];
+check((await send("errado", triage))?.ok === false, "ponte: token errado é recusado");
+({ queue = {} } = await storage("queue"));
+check(!Object.keys(queue).some((k) => k.startsWith("dm:/messaging/thread/2-rec")), "ponte: nada entra com token errado");
+const r = await send(token, triage);
+check(r?.ok && r.accepted === 3 && r.rejected === 1, `ponte: aceita 3 e rejeita link fora do LinkedIn (${JSON.stringify(r)})`);
+({ queue = {} } = await storage("queue"));
+check(queue["dm:/messaging/thread/2-rec"]?.draft?.startsWith("Thanks Laura") && queue["c:8001:8002"]?.classification === "lead", "ponte: ids compatíveis com os do Nexo (DM e comentário)");
+await panel.click("nav >> text=Caixa de entrada");
+await panel.waitForTimeout(400);
+const laura = '.qi[data-q="dm:/messaging/thread/2-rec"]';
+check(await panel.isVisible(`${laura} >> text=Recrutador`) && await panel.isVisible(`${laura} >> text=Claude`), "ponte: selos de classificação e origem no painel");
+check((await panel.inputValue(`${laura} textarea`)).startsWith("Thanks Laura"), "ponte: rascunho da triagem já pronto para 'Abrir e inserir'");
+check(!(await panel.isVisible('.qi[data-q^="t:"] >> text=✨ Gerar respostas')), "ponte: convite sem botão de gerar");
+
 check(errors.length === 0, `sem erros de JS (${errors.length})`);
 errors.forEach((e) => console.log("   ", e));
 await ctx.close();

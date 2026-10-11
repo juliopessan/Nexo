@@ -78,25 +78,34 @@ async function renderInbox() {
       "Nada pendente. Abra seus posts, notificações ou mensagens: comentários sem resposta e DMs não lidas aparecem aqui."}</p>`;
     return;
   }
+  // Rascunho vindo da triagem do Claude já entra como opção selecionada
+  for (const q of queue) if (q.draft && (!drafts[q.id] || drafts[q.id].fromTriage !== q.draft) && !drafts[q.id]?.loading)
+    drafts[q.id] = { list: [q.draft], pick: 0, text: q.draft, fromTriage: q.draft };
+  const CLS = { lead: "Lead", recrutador: "Recrutador", parceria: "Parceria/venda", peer: "Peer", substancia: "Substância", apoio: "Apoio", ruido: "Ruído", spam: "Spam" };
   $("#queue").innerHTML = queue.map((q) => {
     const d = drafts[q.id];
     return `<li class="qi" data-q="${esc(q.id)}">
-      <header><span>${q.kind === "dm" ? "✉️" : "💬"}</span><b>${esc(q.author?.name || "?")}</b>
+      <header><span>${q.kind === "dm" ? "✉️" : q.kind === "invite" ? "🤝" : "💬"}</span><b>${esc(q.author?.name || "?")}</b>
+        ${CLS[q.classification] ? `<span class="cls cls-${esc(q.classification)}">${CLS[q.classification]}</span>` : ""}
+        ${q.source === "claude-triage" ? `<span class="cls" title="Rascunho da tarefa agendada Triagem LinkedIn">Claude</span>` : ""}
         ${q.priority === 1 ? `<span class="prio">${q.kind === "dm" ? "Sua DM" : "Seu post"}</span>` : ""}
         <small>${new Date(q.seenAt).toLocaleDateString("pt-BR")}</small></header>
+      ${q.author?.headline ? `<small>${esc(q.author.headline)}</small>` : ""}
       <blockquote>${esc(q.text)}</blockquote>
+      ${q.why ? `<small>💡 ${esc(q.why)}</small>` : ""}
       ${d?.list ? `<div class="drafts">${d.list.map((x, i) => `<button data-pick="${i}" class="${d.pick === i ? "on" : ""}">${esc(x)}</button>`).join("")}</div>
         <textarea data-edit>${esc(d.text || "")}</textarea>` : ""}
       <div class="row">
-        <button data-act="gen">${d?.loading ? "Gerando…" : d?.list ? "✨ Gerar de novo" : "✨ Gerar respostas"}</button>
-        <button data-act="open" class="ghost">${d?.text ? "Abrir e inserir" : "Abrir"}</button>
+        ${q.kind === "invite" ? "" : `<button data-act="gen">${d?.loading ? "Gerando…" : d?.list ? "✨ Gerar de novo" : "✨ Gerar respostas"}</button>`}
+        <button data-act="open" class="ghost">${d?.text && q.kind !== "invite" ? "Abrir e inserir" : "Abrir"}</button>
         <button data-act="done" class="ghost">✔ Feito</button>
         <button data-act="skip" class="ghost">Ignorar</button>
       </div></li>`;
   }).join("");
   document.querySelectorAll(".qi").forEach((li) => {
     const q = queue.find((x) => x.id === li.dataset.q);
-    li.querySelector('[data-act="gen"]').onclick = () => generateFor(q);
+    const gen = li.querySelector('[data-act="gen"]');
+    if (gen) gen.onclick = () => generateFor(q);
     li.querySelector('[data-act="open"]').onclick = () => openItem(q);
     li.querySelector('[data-act="done"]').onclick = () => S.setQueueStatus(q.id, "done").then(render);
     li.querySelector('[data-act="skip"]').onclick = () => S.setQueueStatus(q.id, "dismissed").then(render);
@@ -126,7 +135,7 @@ async function generateFor(q) {
 
 async function openItem(q) {
   const text = drafts[q.id]?.text?.trim();
-  if (text) await S.setPending({ url: q.url, kind: q.kind, targetId: q.targetId, text, author: q.author?.name, text0: q.text });
+  if (text && q.kind !== "invite") await S.setPending({ url: q.url, kind: q.kind, targetId: q.targetId, text, author: q.author?.name, text0: q.text });
   const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (active?.url?.startsWith("https://www.linkedin.com/")) await chrome.tabs.update(active.id, { url: q.url });
   else await chrome.tabs.create({ url: q.url });
@@ -187,8 +196,40 @@ async function openDetail(id) {
   };
 }
 
+const newToken = () => [...crypto.getRandomValues(new Uint8Array(18))].map((b) => b.toString(16).padStart(2, "0")).join("");
+async function renderBridge(st) {
+  const box = $("#bridgeBox");
+  if (!st.bridgeToken) {
+    box.innerHTML = `<p class="hint">Desativada. Ative para a tarefa agendada do Claude (Claude in Chrome) colocar rascunhos na sua Caixa de entrada.</p><button id="bridgeOn">Ativar e gerar token</button>`;
+    $("#bridgeOn").onclick = async () => { await S.saveSettings({ bridgeToken: newToken() }); render(); };
+    return;
+  }
+  const last = st.lastBridgeImport;
+  box.innerHTML = `<div class="kv"><div><span>Status:</span> ativa ${last ? `· última importação ${new Date(last.at).toLocaleString("pt-BR")} (${last.accepted}/${last.received} itens)` : "· nenhuma importação ainda"}</div></div>
+    <p class="hint">Cole este bloco no fim das instruções da tarefa <b>Triagem LinkedIn</b>. Ele contém seu token: não compartilhe.</p>
+    <textarea id="bridgeSnippet" rows="10" readonly></textarea>
+    <div class="row"><button id="copySnippet">Copiar instruções</button><button class="ghost" id="rotateToken">Novo token</button><button class="ghost" id="bridgeOff">Desativar</button></div>`;
+  $("#bridgeSnippet").value = bridgeInstructions(st.bridgeToken);
+  $("#copySnippet").onclick = (e) => { navigator.clipboard.writeText($("#bridgeSnippet").value); e.target.textContent = "Copiado ✔"; };
+  $("#rotateToken").onclick = async () => {
+    if (!confirm("O token atual deixa de funcionar. Atualize as instruções da tarefa depois. Continuar?")) return;
+    await S.saveSettings({ bridgeToken: newToken() });
+    render();
+  };
+  $("#bridgeOff").onclick = async () => { await S.saveSettings({ bridgeToken: null }); render(); };
+}
+
+function bridgeInstructions(token) {
+  return `7. ENTREGA NO NEXO (depois do resumo): numa aba de https://www.linkedin.com/ use a ferramenta de JavaScript do Claude in Chrome para executar UMA vez:
+window.postMessage({ type: "nexo:import", token: "${token}", items: [ ...itens da fila... ] }, "*")
+Cada item: { kind: "dm" | "comment" | "invite", url: "<link do LinkedIn da conversa, do post (com ?commentUrn=... quando houver) ou do perfil>", author: { name, headline }, text: "<o que a pessoa escreveu, até 2000 caracteres>", classification: "lead" | "recrutador" | "parceria" | "peer" | "substancia" | "apoio" | "ruido" | "spam", urgency: 1 (urgente) | 2 | 3, why: "<1 linha do que pede>", draft: "<rascunho pronto>", postText: "<texto do post, só para comentários>" }.
+Inclua só itens que pedem ação (não inclua os "sem ação"). Convites entram com kind "invite" e sem draft.
+Confirme no resumo a resposta da página: ela publica { type: "nexo:import:result", accepted, rejected }. Se não houver resposta, diga "Nexo não respondeu (extensão desativada ou token errado)". Isso NÃO envia nada no LinkedIn: só deixa os rascunhos na Caixa de entrada do Nexo para o Julio revisar.`;
+}
+
 async function renderConfig() {
   const st = await S.getSettings();
+  await renderBridge(st);
   const goals = { ...S.DEFAULT_GOALS, ...st.goals };
   for (const el of $("#goalsForm").elements) if (el.name && document.activeElement !== el) el.value = goals[el.name];
   $("#meInfo").innerHTML = st.me ? `Seu perfil: <b>${esc(st.me.name)}</b>. Comentários nos seus posts entram na Caixa de entrada.`
