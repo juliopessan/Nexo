@@ -5,7 +5,7 @@ Na VPS, como root:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/juliopessan/Nexo/main/deploy/install.sh | sh -s -- nexo.srv1774174.hstgr.cloud
 ```
-O script instala o Docker (se faltar), gera senhas aleatórias no `.env`, sobe tudo, agenda o backup e mostra o **código de cadastro**. Rodar de novo atualiza o código e mantém os dados.
+Para atualizar depois, rode a cópia local: `sh /opt/nexo/deploy/install.sh SEU_DOMINIO`. O script instala o Docker (se faltar), gera senhas aleatórias no `.env`, sobe tudo, agenda o backup e mostra o **código de cadastro**. Rodar de novo atualiza o código e mantém os dados.
 
 ## Instalação manual
 Requisitos: VPS Linux com Docker + Docker Compose, um domínio (ou subdomínio) apontando para o IP da VPS e as portas 80/443 liberadas.

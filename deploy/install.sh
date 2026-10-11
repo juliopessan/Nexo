@@ -18,6 +18,11 @@ command -v git >/dev/null 2>&1 || (apt-get update -qq && apt-get install -y -qq 
 
 echo "==> Código em $DIR"
 if [ -d "$DIR/.git" ]; then git -C "$DIR" pull -q --ff-only; else git clone -q https://github.com/juliopessan/Nexo.git "$DIR"; fi
+# O script baixado pelo curl pode vir de um cache antigo do GitHub: continua sempre pela cópia recém-atualizada
+if [ -z "${NEXO_REEXEC:-}" ]; then
+  echo "==> Continuando com $DIR/deploy/install.sh ($(git -C "$DIR" log --oneline -1))"
+  NEXO_REEXEC=1 exec sh "$DIR/deploy/install.sh" "$DOMAIN"
+fi
 cd "$DIR/deploy"
 
 echo "==> DNS de $DOMAIN"
