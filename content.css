@@ -1,0 +1,10 @@
+#nexo-profile-bar{position:fixed;right:20px;bottom:20px;z-index:9999;display:flex;gap:10px;align-items:center;background:#0b1d33;color:#fff;padding:10px 14px;border-radius:14px;box-shadow:0 8px 30px rgba(0,0,0,.25);font:13px system-ui}
+#nexo-profile-bar strong{color:#5ec2ff}
+.nexo-chip{border:1px solid #0a66c2;background:#fff;color:#0a66c2;border-radius:999px;padding:4px 10px;font:600 12px system-ui;cursor:pointer}
+.nexo-chip:hover{background:#0a66c2;color:#fff}
+.nexo-post-bar{display:flex;gap:6px;flex-wrap:wrap;padding:6px 12px 10px}
+.nexo-chip--composer{margin:6px 8px}
+.nexo-menu{position:absolute;z-index:10000;background:#fff;border:1px solid #ddd;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.15);padding:4px;min-width:200px;font:13px system-ui}
+.nexo-menu button{display:block;width:100%;text-align:left;border:0;background:none;padding:8px 10px;border-radius:6px;cursor:pointer}
+.nexo-menu button:hover{background:#eef5fc}
+.nexo-toast{position:fixed;left:50%;bottom:30px;transform:translateX(-50%);background:#0b1d33;color:#fff;padding:10px 16px;border-radius:10px;z-index:10001;font:13px system-ui}

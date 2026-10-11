@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "Nexo — CRM para LinkedIn",
+  "version": "0.2.0",
+  "description": "Salve contatos do LinkedIn, organize em pipeline, use templates em DMs e comentários e nunca perca um follow-up.",
+  "permissions": [
+    "storage",
+    "sidePanel",
+    "alarms",
+    "notifications"
+  ],
+  "host_permissions": [
+    "https://www.linkedin.com/*",
+    "https://api.anthropic.com/*",
+    "https://*.supabase.co/*",
+    "https://api.hunter.io/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "action": {
+    "default_title": "Abrir Nexo"
+  },
+  "icons": {
+    "16": "icons/16.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.linkedin.com/*"
+      ],
+      "js": [
+        "store.js",
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

@@ -1,0 +1,176 @@
+const S = NexoStore;
+const $ = (s) => document.querySelector(s);
+const esc = (s = "") => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const today = () => new Date().toISOString().slice(0, 10);
+let tab = "contacts";
+
+const ask = (msg) => chrome.runtime.sendMessage(msg).then((r) => (r?.ok ? r.data : Promise.reject(new Error(r?.error || "Falha"))));
+const avatar = (c) => c.avatar ? `<img src="${esc(c.avatar)}" alt="">` : `<span class="av">${esc((c.name || "?")[0])}</span>`;
+const card = (c) => `<li class="card" draggable="true" data-id="${esc(c.id)}">${avatar(c)}<div><b>${esc(c.name)}</b><small>${esc(c.headline || "")}</small></div><span class="pill">${esc(c.stage)}</span></li>`;
+
+$("#stageFilter").innerHTML = `<option value="">Todas etapas</option>` + S.STAGES.map((s) => `<option>${s}</option>`).join("");
+
+document.querySelectorAll("nav button").forEach((b) => b.onclick = () => show(b.dataset.tab));
+function show(t) {
+  tab = t;
+  document.querySelectorAll("nav button").forEach((b) => b.classList.toggle("on", b.dataset.tab === t));
+  document.querySelectorAll("main > section").forEach((s) => (s.hidden = s.id !== t));
+  render();
+}
+
+async function render() {
+  const { contacts, templates } = await S.get();
+  const all = Object.values(contacts).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  if (tab === "contacts") {
+    const q = $("#q").value.toLowerCase(), st = $("#stageFilter").value;
+    const rows = all.filter((c) => (!st || c.stage === st) && [c.name, c.headline, c.company, ...(c.tags || [])].join(" ").toLowerCase().includes(q));
+    $("#list").innerHTML = rows.map(card).join("") || `<p class="empty">Abra um perfil no LinkedIn e clique em “+ Salvar contato”.</p>`;
+  }
+  if (tab === "pipeline") {
+    $("#board").innerHTML = S.STAGES.map((s) => {
+      const cs = all.filter((c) => c.stage === s);
+      return `<div class="col" data-stage="${s}"><h3>${s}<span>${cs.length}</span></h3><ul class="cards">${cs.map(card).join("")}</ul></div>`;
+    }).join("");
+    document.querySelectorAll(".col").forEach((col) => {
+      col.ondragover = (e) => { e.preventDefault(); col.classList.add("over"); };
+      col.ondragleave = () => col.classList.remove("over");
+      col.ondrop = async (e) => {
+        const id = e.dataTransfer.getData("text/plain");
+        await S.patchContact(id, { stage: col.dataset.stage });
+        await S.logActivity(id, "stage", `Movido para ${col.dataset.stage}`);
+        render();
+      };
+    });
+  }
+  if (tab === "today") {
+    const due = all.filter((c) => c.followUp && c.followUp <= today()).sort((a, b) => a.followUp.localeCompare(b.followUp));
+    $("#dueList").innerHTML = due.map(card).join("") || `<p class="empty">Nada pendente. Caixa zerada 🎉</p>`;
+  }
+  if (tab === "templates") {
+    $("#tplList").innerHTML = templates.map((t) => `<li><b>${esc(t.name)}</b> <span class="pill">${t.kind === "dm" ? "DM" : "Comentário"}</span><p>${esc(t.body)}</p><button class="ghost" data-del="${esc(t.id)}">Remover</button></li>`).join("");
+    document.querySelectorAll("[data-del]").forEach((b) => b.onclick = async () => { await S.saveTemplates(templates.filter((t) => t.id !== b.dataset.del)); render(); });
+  }
+  if (tab === "config") await renderConfig();
+  document.querySelectorAll(".card").forEach((el) => {
+    el.onclick = () => openDetail(el.dataset.id);
+    el.ondragstart = (e) => e.dataTransfer.setData("text/plain", el.dataset.id);
+  });
+}
+
+async function openDetail(id) {
+  const { contacts } = await S.get();
+  const c = contacts[id]; if (!c) return;
+  document.querySelectorAll("main > section").forEach((s) => (s.hidden = s.id !== "detail"));
+  $("#detail").innerHTML = `
+    <button class="ghost" id="back">← Voltar</button>
+    <div class="card" style="margin:10px 0">${avatar(c)}<div><b>${esc(c.name)}</b><small>${esc(c.headline || "")}</small></div></div>
+    <div class="kv">
+      <div><span>E-mail:</span> ${c.email ? `<a href="mailto:${esc(c.email)}">${esc(c.email)}</a> <small>(${esc(c.emailSource || "?")}${c.emailScore != null ? ` · confiança ${esc(c.emailScore)}%` : ""})</small>` : "—"}</div>
+      ${c.companyInfo ? `<div><span>Empresa:</span> ${esc(c.companyInfo.name || c.company || "")} ${c.companyInfo.domain ? `· ${esc(c.companyInfo.domain)}` : ""}</div>
+      <div><span>Setor/porte:</span> ${esc(c.companyInfo.industry || "?")} · ${esc(c.companyInfo.employees || "?")} pessoas ${c.companyInfo.location ? `· ${esc(c.companyInfo.location)}` : ""}</div>` : ""}
+      ${(c.websites || []).map((w) => `<div><a href="${esc(w)}" target="_blank" rel="noopener">${esc(w)}</a></div>`).join("")}
+    </div>
+    <div class="row"><button class="ghost" id="enrich">🔎 Enriquecer</button><button class="ghost" id="aiDm">✨ Sugerir DM</button></div>
+    <div id="suggs"></div>
+    <form id="df">
+      <label>Etapa<select name="stage">${S.STAGES.map((s) => `<option ${s === c.stage ? "selected" : ""}>${s}</option>`).join("")}</select></label>
+      <label>Empresa<input name="company" value="${esc(c.company || "")}"></label>
+      <label>Tags (vírgula)<input name="tags" value="${esc((c.tags || []).join(", "))}"></label>
+      <label>Próximo follow-up<input type="date" name="followUp" value="${esc(c.followUp || "")}"></label>
+      <label>Notas<textarea name="notes" rows="4">${esc(c.notes || "")}</textarea></label>
+      <button>Salvar</button>
+    </form>
+    <div class="row" style="margin-top:8px"><button class="ghost" id="openLi">Abrir no LinkedIn</button><button class="danger" id="del">Excluir</button></div>
+    <h3>Histórico</h3>${(c.activities || []).map((a) => `<div class="act">${esc(a.text)} · ${new Date(a.at).toLocaleString("pt-BR")}</div>`).join("") || "<p class=empty>Sem atividades.</p>"}`;
+  $("#back").onclick = () => show(tab);
+  $("#enrich").onclick = async (e) => {
+    e.target.textContent = "Buscando…";
+    try { await ask({ type: "enrich", id }); openDetail(id); } catch (err) { alert(err.message); e.target.textContent = "🔎 Enriquecer"; }
+  };
+  $("#aiDm").onclick = async (e) => {
+    e.target.textContent = "Gerando…";
+    try {
+      const list = await ask({ type: "ai-suggest", kind: "dm", context: { contact: { name: c.name, headline: c.headline, company: c.company, stage: c.stage, notes: c.notes } } });
+      $("#suggs").innerHTML = list.map((t) => `<div class="sugg" title="Clique para copiar">${esc(t)}</div>`).join("");
+      document.querySelectorAll(".sugg").forEach((el) => el.onclick = () => { navigator.clipboard.writeText(el.textContent); el.style.borderColor = "#2e9d5b"; });
+    } catch (err) { alert(err.message); }
+    e.target.textContent = "✨ Sugerir DM";
+  };
+  $("#openLi").onclick = () => chrome.tabs.create({ url: c.url });
+  $("#del").onclick = async () => { if (confirm(`Excluir ${c.name}?`)) { await S.deleteContact(id); show(tab); } };
+  $("#df").onsubmit = async (e) => {
+    e.preventDefault();
+    const f = Object.fromEntries(new FormData(e.target));
+    const patch = { ...f, tags: f.tags.split(",").map((t) => t.trim()).filter(Boolean), followUp: f.followUp || null };
+    if (patch.stage !== c.stage) await S.logActivity(id, "stage", `Movido para ${patch.stage}`);
+    await S.patchContact(id, patch);
+    show(tab);
+  };
+}
+
+async function renderConfig() {
+  const st = await S.getSettings();
+  for (const f of ["#aiForm", "#sbForm", "#hunterForm"]) {
+    for (const el of $(f).elements) if (el.name && document.activeElement !== el) el.value = st[el.name] || "";
+  }
+  const box = $("#teamBox");
+  if (!st.session) {
+    box.innerHTML = `<form id="loginForm"><label>E-mail<input name="email" type="email" required></label><label>Senha<input name="password" type="password" required></label><button>Entrar</button></form>
+      <p class="hint">Crie usuários em Authentication → Users no Supabase.</p>`;
+    $("#loginForm").onsubmit = (e) => { e.preventDefault(); run(ask({ type: "login", ...Object.fromEntries(new FormData(e.target)) })); };
+  } else if (!st.teamId) {
+    box.innerHTML = `<p>Conectado como <b>${esc(st.session.email)}</b></p>
+      <form id="newTeam"><input name="name" placeholder="Nome da equipe" required><button>Criar equipe</button></form>
+      <form id="joinTeam"><input name="code" placeholder="Código de convite" required><button>Entrar na equipe</button></form>
+      <button class="ghost" id="logout">Sair</button>`;
+    $("#newTeam").onsubmit = (e) => { e.preventDefault(); run(ask({ type: "create-team", name: e.target.name.value })); };
+    $("#joinTeam").onsubmit = (e) => { e.preventDefault(); run(ask({ type: "join-team", code: e.target.code.value.trim() })); };
+    $("#logout").onclick = () => run(ask({ type: "logout" }));
+  } else {
+    box.innerHTML = `<div class="kv"><div><span>Equipe:</span> <b>${esc(st.teamName || "")}</b></div>
+      <div><span>Convite:</span> <code>${esc(st.inviteCode || "")}</code> <small>(compartilhe só com sua equipe)</small></div>
+      <div><span>Conta:</span> ${esc(st.session.email)}</div></div>
+      <div class="row"><button id="syncBtn">Sincronizar agora</button><button class="ghost" id="logout">Sair</button></div>`;
+    $("#syncBtn").onclick = () => run(ask({ type: "sync-now" }).then((r) => alert(`Recebidos: ${r.pulled} · Enviados: ${r.pushed}`)));
+    $("#logout").onclick = () => run(ask({ type: "logout" }));
+  }
+}
+const run = (p) => p.catch((e) => alert(e.message)).finally(render);
+const saveForm = (sel) => $(sel).onsubmit = async (e) => {
+  e.preventDefault();
+  await S.saveSettings(Object.fromEntries([...new FormData(e.target)].map(([k, v]) => [k, v.trim()])));
+  e.submitter.textContent = "Salvo ✔";
+  setTimeout(() => render(), 900);
+};
+["#aiForm", "#sbForm", "#hunterForm"].forEach(saveForm);
+
+async function renderSyncStatus() {
+  const st = await S.getSettings();
+  $("#syncStatus").textContent = !st.teamId ? "Modo local (sem equipe)"
+    : st.lastSyncError ? `⚠️ Sync: ${st.lastSyncError}`
+    : `☁️ ${st.teamName} · sincronizado ${st.lastSyncAt ? new Date(st.lastSyncAt).toLocaleTimeString("pt-BR") : "—"}`;
+}
+
+$("#q").oninput = render;
+$("#stageFilter").onchange = render;
+$("#tplForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const { templates } = await S.get();
+  await S.saveTemplates([...templates, { id: "t" + Date.now(), ...Object.fromEntries(new FormData(e.target)) }]);
+  e.target.reset(); render();
+};
+$("#export").onclick = async () => {
+  const { contacts } = await S.get();
+  const cols = ["name", "headline", "company", "stage", "tags", "followUp", "notes", "url"];
+  const q = (v) => `"${String(Array.isArray(v) ? v.join("; ") : v ?? "").replace(/"/g, '""')}"`;
+  const csv = [cols.join(","), ...Object.values(contacts).map((c) => cols.map((k) => q(c[k])).join(","))].join("\n");
+  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv" })), download: "nexo-contatos.csv" });
+  a.click();
+};
+chrome.storage.onChanged.addListener((ch) => {
+  if (ch.settings) renderSyncStatus();
+  if (!$("#detail").hidden || (tab === "config" && !ch.settings)) return;
+  render();
+});
+renderSyncStatus();
+render();

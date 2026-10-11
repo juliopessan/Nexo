@@ -1,0 +1,258 @@
+// Nexo content script — tudo é disparado por clique do usuário. Nada é enviado automaticamente:
+// o Nexo preenche o texto, você revisa e aperta "Enviar". Isso mantém sua conta segura.
+(() => {
+  const $ = (sel, root = document) => root.querySelector(sel);
+  const text = (sel, root) => ($(sel, root)?.innerText || "").trim();
+
+  function toast(msg) {
+    const t = Object.assign(document.createElement("div"), { className: "nexo-toast", textContent: msg });
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 2400);
+  }
+
+  function insertInto(editor, value) {
+    editor.focus();
+    document.execCommand("selectAll", false, null);
+    document.execCommand("insertText", false, value);
+  }
+
+  // Menu flutuante genérico: items = [{ label, title, value }]
+  function showMenu(anchor, items, onPick, emptyText) {
+    document.querySelector(".nexo-menu")?.remove();
+    const menu = Object.assign(document.createElement("div"), { className: "nexo-menu" });
+    items.forEach((it) => {
+      const b = Object.assign(document.createElement("button"), { textContent: it.label, title: it.title || "" });
+      b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); menu.remove(); onPick(it.value); };
+      menu.appendChild(b);
+    });
+    if (!items.length) menu.textContent = emptyText || "Nada por aqui";
+    const r = anchor.getBoundingClientRect();
+    Object.assign(menu.style, { top: `${r.bottom + window.scrollY + 4}px`, left: `${r.left + window.scrollX}px` });
+    document.body.appendChild(menu);
+    setTimeout(() => document.addEventListener("click", (e) => { if (!menu.contains(e.target)) menu.remove(); }, { once: true }), 0);
+    return menu;
+  }
+
+  async function pickTemplate(anchor, kind, contact, onPick) {
+    const { templates } = await NexoStore.get();
+    showMenu(anchor, templates.filter((t) => t.kind === kind).map((t) => ({ label: t.name, title: t.body, value: NexoStore.fill(t.body, contact) })),
+      onPick, "Crie templates no painel do Nexo");
+  }
+
+  const ask = (msg) => chrome.runtime.sendMessage(msg).then((r) => (r?.ok ? r.data : Promise.reject(new Error(r?.error || "Falha na extensão"))));
+
+  // Sugestões da IA: mostra estado de carregamento no próprio menu, depois as 3 alternativas
+  async function pickAI(anchor, kind, context, onPick) {
+    const loading = showMenu(anchor, [], () => {}, "✨ Gerando sugestões…");
+    try {
+      const list = await ask({ type: "ai-suggest", kind, context });
+      loading.remove();
+      showMenu(anchor, list.map((t) => ({ label: t.length > 90 ? t.slice(0, 90) + "…" : t, title: t, value: t })), onPick, "Sem sugestões");
+    } catch (e) {
+      loading.remove();
+      toast(e.message);
+    }
+  }
+
+  function chip(label, onClick) {
+    const b = Object.assign(document.createElement("button"), { className: "nexo-chip", textContent: label, type: "button" });
+    b.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); onClick(b); });
+    return b;
+  }
+
+  // 1) Página de perfil: salvar no CRM
+  function scrapeProfile() {
+    const id = NexoStore.idFromUrl(location.href);
+    if (!id) return null;
+    const main = $("main") || document;
+    const name = text("h1", main);
+    if (!name) return null;
+    const headline = text(".text-body-medium", main);
+    return {
+      id, name, headline,
+      location: text(".text-body-small.inline", main),
+      company: text('button[aria-label*="Empresa atual"], button[aria-label*="Current company"]', main),
+      avatar: $("img.pv-top-card-profile-picture__image--show, img.pv-top-card-profile-picture__image", main)?.src,
+      url: `https://www.linkedin.com/in/${id}/`
+    };
+  }
+
+  async function renderProfileBar() {
+    const p = scrapeProfile();
+    let bar = $("#nexo-profile-bar");
+    if (!p) return bar?.remove();
+    if (bar?.dataset.id === p.id) return;
+    bar?.remove();
+    const { contacts } = await NexoStore.get();
+    bar = Object.assign(document.createElement("div"), { id: "nexo-profile-bar" });
+    bar.dataset.id = p.id;
+    const saved = contacts[p.id];
+    const label = document.createElement("span");
+    label.textContent = saved ? `No Nexo · ${saved.stage}` : "Não está no Nexo";
+    bar.append(
+      Object.assign(document.createElement("strong"), { textContent: "Nexo" }), label,
+      chip(saved ? "Atualizar" : "+ Salvar contato", async () => {
+        const c = await NexoStore.upsertContact(p);
+        if (!saved) await NexoStore.logActivity(c.id, "saved", "Contato salvo a partir do perfil");
+        label.textContent = `No Nexo · ${c.stage}`;
+        toast(`${c.name} salvo no Nexo ✔`);
+      }),
+      chip("🔎 Enriquecer", async () => {
+        await NexoStore.upsertContact(p);
+        try {
+          const r = await ask({ type: "enrich", id: p.id });
+          toast(r.found ? (r.contact.email ? `E-mail: ${r.contact.email}` : "Empresa enriquecida ✔") : "Nada novo encontrado");
+        } catch (e) { toast(e.message); }
+      }),
+      chip("Abrir painel", () => chrome.runtime.sendMessage({ type: "open-panel" }))
+    );
+    document.body.appendChild(bar);
+  }
+
+  // 2) Feed: ações por post (salvar autor, curtir+registrar, rascunho de comentário)
+  function postAuthor(post) {
+    const a = post.querySelector('.update-components-actor__meta-link, a.update-components-actor__image, a[href*="/in/"]');
+    const id = NexoStore.idFromUrl(a?.href);
+    if (!id) return null;
+    const name = (text(".update-components-actor__title span[aria-hidden='true']", post) || text(".update-components-actor__title", post)).split("\n")[0];
+    return { id, name, headline: text(".update-components-actor__description span[aria-hidden='true']", post), url: `https://www.linkedin.com/in/${id}/` };
+  }
+
+  function enhancePost(post) {
+    if (post.dataset.nexo) return;
+    post.dataset.nexo = "1";
+    const actions = post.querySelector(".feed-shared-social-action-bar, .social-details-social-actions");
+    if (!actions) return;
+    const bar = Object.assign(document.createElement("div"), { className: "nexo-post-bar" });
+    bar.append(
+      chip("＋ Autor no CRM", async () => {
+        const a = postAuthor(post);
+        if (!a) return toast("Autor não é um perfil pessoal");
+        await NexoStore.upsertContact(a);
+        await NexoStore.logActivity(a.id, "saved", "Salvo a partir de um post");
+        toast(`${a.name} salvo ✔`);
+      }),
+      chip("👍 Curtir", async () => {
+        const like = post.querySelector('button[aria-label*="React Like"], button[aria-label*="Gostei"], button.react-button__trigger');
+        if (!like) return toast("Botão de curtir não encontrado");
+        if (like.getAttribute("aria-pressed") !== "true") like.click();
+        const a = postAuthor(post);
+        if (a) await NexoStore.logActivity(a.id, "like", "Curtiu um post");
+        toast("Curtido e registrado ✔");
+      }),
+      chip("💬 Comentar com template", async (btn) => {
+        const a = postAuthor(post) || {};
+        post.querySelector('button[aria-label*="Comment"], button[aria-label*="Comentar"]')?.click();
+        pickTemplate(btn, "comment", a, async (value) => {
+          const editor = await waitFor(() => post.querySelector(".comments-comment-box .ql-editor, .comments-comment-texteditor [contenteditable='true']"));
+          if (!editor) return toast("Abra a caixa de comentário");
+          insertInto(editor, value);
+          if (a.id) await NexoStore.logActivity(a.id, "comment", "Rascunho de comentário inserido");
+        });
+      }),
+      chip("✨ Comentar com IA", async (btn) => {
+        const a = postAuthor(post) || {};
+        const postText = text(".update-components-text, .feed-shared-update-v2__description, .feed-shared-inline-show-more-text", post).slice(0, 4000);
+        if (!postText) return toast("Post sem texto para analisar");
+        const { contacts } = await NexoStore.get();
+        pickAI(btn, "comment", { postText, author: a.name, contact: slim(contacts[a.id]) }, async (value) => {
+          post.querySelector('button[aria-label*="Comment"], button[aria-label*="Comentar"]')?.click();
+          const editor = await waitFor(() => post.querySelector(".comments-comment-box .ql-editor, .comments-comment-texteditor [contenteditable='true']"));
+          if (!editor) return toast("Abra a caixa de comentário");
+          insertInto(editor, value);
+          if (a.id) await NexoStore.logActivity(a.id, "comment", "Comentário sugerido por IA inserido");
+        });
+      })
+    );
+    actions.after(bar);
+  }
+
+  // 3) Mensagens: templates de DM no composer
+  function conversationContact() {
+    const link = $('.msg-thread__link-to-profile, .msg-overlay-bubble-header a[href*="/in/"], a.msg-thread__link-to-profile');
+    const id = NexoStore.idFromUrl(link?.href);
+    const name = text(".msg-entity-lockup__entity-title, .msg-overlay-bubble-header__title, h2.msg-entity-lockup__entity-title");
+    return { id, name };
+  }
+
+  function enhanceComposer(form) {
+    if (form.dataset.nexo) return;
+    form.dataset.nexo = "1";
+    const c = chip("⚡ Templates Nexo", async (btn) => {
+      const conv = conversationContact();
+      const { contacts } = await NexoStore.get();
+      const contact = (conv.id && contacts[conv.id]) || conv;
+      pickTemplate(btn, "dm", contact, async (value) => {
+        const editor = form.querySelector(".msg-form__contenteditable, [contenteditable='true']");
+        if (!editor) return;
+        insertInto(editor, value);
+        if (conv.id) {
+          if (!contacts[conv.id]) await NexoStore.upsertContact({ id: conv.id, name: conv.name, url: `https://www.linkedin.com/in/${conv.id}/` });
+          await NexoStore.logActivity(conv.id, "dm", "Rascunho de DM inserido");
+        }
+      });
+    });
+    const ai = chip("✨ Responder com IA", async (btn) => {
+      const conv = conversationContact();
+      const { contacts } = await NexoStore.get();
+      const root = form.closest(".msg-overlay-conversation-bubble, .msg-convo-wrapper, main") || document;
+      const thread = [...root.querySelectorAll(".msg-s-event-listitem")].slice(-12).map((li) => {
+        const who = text(".msg-s-message-group__name", li) || (li.classList.contains("msg-s-event-listitem--other") ? conv.name : "Eu");
+        return `${who || "?"}: ${text(".msg-s-event-listitem__body", li)}`;
+      }).filter((l) => !l.endsWith(": "));
+      const contact = slim(contacts[conv.id]) || { name: conv.name };
+      pickAI(btn, thread.length ? "reply" : "dm", { thread, contact }, async (value) => {
+        const editor = form.querySelector(".msg-form__contenteditable, [contenteditable='true']");
+        if (!editor) return;
+        insertInto(editor, value);
+        if (conv.id && contacts[conv.id]) await NexoStore.logActivity(conv.id, "dm", "Resposta sugerida por IA inserida");
+      });
+    });
+    c.classList.add("nexo-chip--composer");
+    ai.classList.add("nexo-chip--composer");
+    form.prepend(c, ai);
+  }
+
+  // Só o que a IA precisa saber do contato (nada de e-mail ou histórico completo)
+  const slim = (c) => c && { name: c.name, headline: c.headline, company: c.company, stage: c.stage, notes: (c.notes || "").slice(0, 800) };
+
+  // Diálogo "Informações de contato" aberto pelo usuário: captura e-mail/sites que o LinkedIn já exibe
+  async function scanContactInfo() {
+    const dlg = $('div[role="dialog"] .pv-contact-info, div[role="dialog"] section.pv-contact-info__contact-type')?.closest('div[role="dialog"]');
+    if (!dlg || dlg.dataset.nexo) return;
+    const id = NexoStore.idFromUrl(location.href);
+    const { contacts } = await NexoStore.get();
+    if (!id || !contacts[id]) return;
+    dlg.dataset.nexo = "1";
+    const email = $('a[href^="mailto:"]', dlg)?.href.slice(7);
+    const websites = [...dlg.querySelectorAll('section a[href^="http"]')].map((a) => a.href).filter((h) => !h.includes("linkedin.com"));
+    const patch = {};
+    if (email && email !== contacts[id].email) Object.assign(patch, { email, emailSource: "linkedin", emailScore: null });
+    if (websites.length) patch.websites = [...new Set(websites)];
+    if (Object.keys(patch).length) {
+      await NexoStore.patchContact(id, patch);
+      if (patch.email) await NexoStore.logActivity(id, "enrich", "E-mail capturado das Informações de contato");
+      toast("Informações de contato salvas no Nexo ✔");
+    }
+  }
+
+  function waitFor(fn, ms = 3000) {
+    return new Promise((res) => {
+      const t0 = Date.now();
+      (function tick() { const v = fn(); if (v || Date.now() - t0 > ms) return res(v); setTimeout(tick, 150); })();
+    });
+  }
+
+  // LinkedIn é SPA: observa mudanças de DOM com debounce
+  let pending = false;
+  const scan = () => {
+    pending = false;
+    renderProfileBar();
+    document.querySelectorAll("div.feed-shared-update-v2, div[data-urn^='urn:li:activity']").forEach(enhancePost);
+    document.querySelectorAll("form.msg-form").forEach(enhanceComposer);
+    scanContactInfo();
+  };
+  new MutationObserver(() => { if (!pending) { pending = true; setTimeout(scan, 400); } })
+    .observe(document.body, { childList: true, subtree: true });
+  scan();
+})();

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Nexo</title><link rel="stylesheet" href="sidepanel.css"></head>
+<body>
+<header><h1>Nexo<span>CRM para LinkedIn</span></h1>
+<nav><button data-tab="contacts" class="on">Contatos</button><button data-tab="pipeline">Pipeline</button><button data-tab="today">Hoje</button><button data-tab="templates">Templates</button><button data-tab="config">Config</button></nav><div id="syncStatus"></div></header>
+<main>
+  <section id="contacts">
+    <div class="row"><input id="q" placeholder="Buscar nome, cargo, tag…"><select id="stageFilter"></select></div>
+    <ul id="list" class="cards"></ul>
+    <button id="export" class="ghost">Exportar CSV</button>
+  </section>
+  <section id="pipeline" hidden><div id="board"></div></section>
+  <section id="today" hidden><h2>Follow-ups pendentes</h2><ul id="dueList" class="cards"></ul></section>
+  <section id="templates" hidden>
+    <ul id="tplList"></ul>
+    <form id="tplForm"><select name="kind"><option value="dm">DM</option><option value="comment">Comentário</option></select>
+      <input name="name" placeholder="Nome do template" required>
+      <textarea name="body" rows="4" placeholder="Use {firstName}, {name}, {headline}, {company}" required></textarea>
+      <button>Adicionar template</button></form>
+  </section>
+  <section id="config" hidden>
+    <h2>✨ IA (Claude)</h2>
+    <form id="aiForm">
+      <label>Chave da API Anthropic<input name="anthropicKey" type="password" placeholder="sk-ant-..." autocomplete="off"></label>
+      <label>Modelo<input name="model" placeholder="claude-opus-5-5"></label>
+      <label>Sobre você (a IA escreve na sua voz)<textarea name="aboutMe" rows="3" placeholder="Ex.: Fundador da Acme, vendo automação de RH para PMEs. Tom direto e bem-humorado."></textarea></label>
+      <button>Salvar IA</button>
+    </form>
+    <h2>☁️ Equipe e sincronização</h2>
+    <form id="sbForm">
+      <label>Supabase URL<input name="supabaseUrl" placeholder="https://xxxx.supabase.co"></label>
+      <label>Supabase anon key<input name="supabaseAnonKey" type="password" autocomplete="off"></label>
+      <button>Salvar conexão</button>
+    </form>
+    <div id="teamBox"></div>
+    <h2>🔎 Enriquecimento</h2>
+    <form id="hunterForm">
+      <label>Chave Hunter.io<input name="hunterKey" type="password" autocomplete="off"></label>
+      <button>Salvar</button>
+    </form>
+    <p class="hint">As chaves ficam só neste navegador e são usadas pelo service worker do Nexo, nunca pela página do LinkedIn.</p>
+  </section>
+  <section id="detail" hidden></section>
+</main>
+<script src="store.js"></script><script src="sidepanel.js"></script>
+</body></html>
