@@ -1,14 +1,15 @@
 {
   "manifest_version": 3,
   "name": "Nexo — Assistente de engajamento no LinkedIn",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "description": "Responda comentários e DMs com IA, curta e comente com um clique e bata suas metas diárias de engajamento. Você sempre aprova antes de enviar.",
   "permissions": [
     "storage",
     "sidePanel",
     "alarms",
     "notifications",
-    "identity"
+    "identity",
+    "downloads"
   ],
   "host_permissions": [
     "https://www.linkedin.com/*",

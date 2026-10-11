@@ -219,6 +219,23 @@ const routes = [
     return { user: u, teams: rows.map(teamView) };
   }],
 
+  // Cofre pessoal: só o próprio usuário lê/grava; last-write-wins por updated_at do cliente
+  ["GET", /^\/me\/vault$/, async (req) => {
+    const u = await authUser(req);
+    const { rows: [r] } = await pool.query("select vault, vault_updated_at from nexo_users where id = $1", [u.id]);
+    return { data: r?.vault || null, updated_at: r?.vault_updated_at ? Number(r.vault_updated_at) : 0 };
+  }],
+  ["POST", /^\/me\/vault$/, async (req) => {
+    const u = await authUser(req);
+    const b = await readJson(req);
+    if (!b.data || typeof b.data !== "object" || Array.isArray(b.data) || !Number.isSafeInteger(b.updated_at)) throw new HttpError(400, "Cofre inválido.");
+    if (JSON.stringify(b.data).length > 256_000) throw new HttpError(413, "Cofre grande demais.");
+    const res = await pool.query(
+      "update nexo_users set vault = $2, vault_updated_at = $3 where id = $1 and (vault_updated_at is null or vault_updated_at < $3)",
+      [u.id, b.data, b.updated_at]);
+    return { saved: res.rowCount === 1 };
+  }],
+
   ["POST", /^\/teams$/, async (req) => {
     const u = await authUser(req);
     const { name } = await readJson(req);

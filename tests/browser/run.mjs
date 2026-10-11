@@ -330,8 +330,39 @@ if (process.env.DATABASE_URL) {
   await panel.press('#authForm [name="password"]', "Enter");
   await panel.waitForTimeout(1500);
   check((await storage("settings")).settings.session?.email === "julio.pessan.pessan@gmail.com", "login: aba Já tenho conta entra com a conta criada");
+  // 9) Persistência: cofre no servidor restaura as configurações após "reinstalar" (storage apagado)
+  await sw.evaluate(() => chrome.storage.local.get("settings").then(({ settings }) =>
+    chrome.storage.local.set({ settings: { ...settings, anthropicKey: "sk-vault", tone: "direto", exaKey: "exa-vault", vaultUpdatedAt: Date.now() } })));
+  await sw.evaluate(() => NexoPersist.pushVault());
+  const serverUrl = (await storage("settings")).settings.serverUrl;
+  await sw.evaluate((u) => chrome.storage.local.clear().then(() => chrome.storage.local.set({ settings: { serverUrl: u, freshInstall: true } })), serverUrl);
+  check(!(await sw.evaluate(() => NexoPersist.writeBackupFile())), "persistência: instalação nova não sobrescreve o arquivo de backup");
+  await panel.reload();
+  await panel.waitForTimeout(400);
+  check(await panel.isVisible("#restoreBanner"), "persistência: aviso de restauração na instalação nova");
+  await panel.click("#restoreLogin");
+  await panel.waitForSelector('#authMode >> text=Já tenho conta', { timeout: 5000 });
+  await panel.click('#authMode >> text=Já tenho conta');
+  await panel.fill('#authForm [name="email"]', "julio.pessan.pessan@gmail.com");
+  await panel.fill('#authForm [name="password"]', "senha-bem-forte");
+  await panel.press('#authForm [name="password"]', "Enter");
+  await panel.waitForTimeout(2000);
+  const rs = (await storage("settings")).settings;
+  check(rs.anthropicKey === "sk-vault" && rs.tone === "direto" && rs.exaKey === "exa-vault", `persistência: chaves e tom restaurados do servidor no login (${rs.anthropicKey}, ${rs.tone})`);
+  check(dialogs.some((m) => /restauradas do servidor/.test(m)), "persistência: usuário é avisado da restauração");
   srv.server.close(); await srv.pool.end();
 }
+
+// 10) Backup em arquivo + restauração pelo aviso
+check(await sw.evaluate(() => NexoPersist.writeBackupFile()) === true, "backup: arquivo Downloads/Nexo/nexo-backup.json gravado");
+const backupJson = await sw.evaluate(() => chrome.storage.local.get(null).then((all) => JSON.stringify({ nexoBackup: 1, at: new Date().toISOString(), data: { ...all, settings: { ...all.settings, anthropicKey: "sk-arquivo", freshInstall: false } } })));
+await sw.evaluate(() => chrome.storage.local.clear().then(() => chrome.storage.local.set({ settings: { freshInstall: true } })));
+await panel.reload();
+await panel.waitForTimeout(400);
+await panel.setInputFiles("#restoreFile", { name: "nexo-backup.json", mimeType: "application/json", buffer: Buffer.from(backupJson) });
+await panel.waitForTimeout(800);
+const rf = (await storage("settings")).settings;
+check(rf.anthropicKey === "sk-arquivo" && !rf.freshInstall && !(await panel.isVisible("#restoreBanner")), "backup: restaurar do arquivo pelo aviso recupera tudo");
 
 check(sw.url().startsWith("chrome-extension://lgeenajlpmgihmgnobifccidbccooahc/"), `ID fixo da extensão (${extId})`);
 check(dialogs.some((m) => /GOOGLE_CLIENT_ID/.test(m)) || !process.env.DATABASE_URL, "Google: mensagem explica que falta configurar o servidor");

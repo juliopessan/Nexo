@@ -20,7 +20,15 @@ function show(t) {
   render();
 }
 
+async function renderBanner() {
+  const st = await S.getSettings();
+  // Mostra enquanto for instalação nova sem chaves configuradas
+  $("#restoreBanner").hidden = !(st.freshInstall && !st.anthropicKey && !st.session);
+  if ($("#backupInfo")) $("#backupInfo").textContent = st.lastFileBackupAt ? `Última cópia automática: ${new Date(st.lastFileBackupAt).toLocaleString("pt-BR")}` : "";
+}
+
 async function render() {
+  renderBanner();
   const { contacts, templates } = await S.get();
   const all = Object.values(contacts).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   if (tab === "contacts") {
@@ -237,20 +245,25 @@ $("#backupExport").onclick = async () => {
   });
   a.click();
 };
-$("#backupImport").onchange = async (e) => {
+async function restoreFromFile(e) {
   const file = e.target.files[0];
   if (!file) return;
   try {
     const b = JSON.parse(await file.text());
     if (b.nexoBackup !== 1 || typeof b.data !== "object") throw new Error("Arquivo não é um backup do Nexo.");
-    if (!confirm(`Restaurar o backup de ${b.at}? Os dados atuais desta extensão serão substituídos.`)) return;
+    if (!confirm(`Restaurar o backup de ${new Date(b.at).toLocaleString("pt-BR")}? Os dados atuais desta extensão serão substituídos.`)) return;
     await chrome.storage.local.clear();
     await chrome.storage.local.set(b.data);
-    alert("Backup restaurado ✔");
+    await S.saveSettings({ freshInstall: false, restoredFrom: "arquivo" });
+    alert("Dados restaurados ✔");
     render();
   } catch (err) { alert(err.message); }
   e.target.value = "";
-};
+}
+$("#backupImport").onchange = restoreFromFile;
+$("#restoreFile").onchange = restoreFromFile;
+$("#restoreSkip").onclick = () => S.saveSettings({ freshInstall: false }).then(render);
+$("#restoreLogin").onclick = () => { S.saveSettings({ freshInstall: false }); show("config"); };
 
 async function renderConfig() {
   const st = await S.getSettings();
@@ -316,7 +329,8 @@ async function renderConfig() {
   $("#logout").onclick = () => run(ask({ type: "logout" }));
   if ($("#teamPick")) $("#teamPick").onchange = (e) => run(ask({ type: "switch-team", id: e.target.value }));
 }
-const run = (p) => p.catch((e) => alert(e.message)).finally(render);
+const run = (p) => p.then((r) => { if (r?.restored) alert("Suas configurações foram restauradas do servidor ✔"); })
+  .catch((e) => alert(e.message)).finally(render);
 const saveForm = (sel) => $(sel).onsubmit = async (e) => {
   e.preventDefault();
   await S.saveSettings(Object.fromEntries([...new FormData(e.target)].map(([k, v]) => [k, v.trim()])));

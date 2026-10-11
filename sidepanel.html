@@ -4,6 +4,12 @@
 <header><h1>Nexo<span>Assistente de engajamento no LinkedIn</span></h1>
 <nav><button data-tab="inbox" class="on">Caixa de entrada</button><button data-tab="contacts">Pessoas</button><button data-tab="pipeline">Pipeline</button><button data-tab="templates">Templates</button><button data-tab="config">Config</button></nav><div id="syncStatus"></div></header>
 <main>
+  <div id="restoreBanner" class="banner" hidden>
+    <b>Instalação nova do Nexo</b>
+    <p>Seus dados ficam em <code>Downloads/Nexo/nexo-backup.json</code> (cópia automática) e no seu servidor, se você usa login.</p>
+    <div class="row"><label class="filebtn">Restaurar do arquivo<input type="file" id="restoreFile" accept="application/json" hidden></label>
+      <button class="ghost" id="restoreLogin">Entrar no servidor</button><button class="ghost" id="restoreSkip">Começar do zero</button></div>
+  </div>
   <section id="inbox">
     <div id="goals" class="goals"></div>
     <div class="row seg" id="qfilter"><button data-f="" class="on">Tudo</button><button data-f="comment">Comentários</button><button data-f="dm">DMs</button></div>
@@ -59,9 +65,10 @@
       <button>Salvar</button>
     </form>
     <h2>💾 Backup</h2>
+    <p class="hint" id="backupInfo"></p>
     <div class="row"><button class="ghost" id="backupExport">Exportar backup</button>
       <label class="ghost filebtn">Importar backup<input type="file" id="backupImport" accept="application/json" hidden></label></div>
-    <p class="hint">O backup inclui suas chaves de API: guarde em local seguro.</p>
+    <p class="hint">Cópia automática em <code>Downloads/Nexo/nexo-backup.json</code> a cada mudança e uma vez por dia. Inclui suas chaves de API: guarde em local seguro. Para atualizar o Nexo sem perder nada: substitua os arquivos na mesma pasta e clique em ⟳ (não remova a extensão).</p>
     <p class="hint">As chaves ficam só neste navegador e são usadas pelo service worker do Nexo, nunca pela página do LinkedIn.</p>
   </section>
   <section id="detail" hidden></section>

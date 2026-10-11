@@ -49,6 +49,15 @@ O backend roda na **sua VPS**: PostgreSQL + API em Node (`server/`) + Caddy com 
 - E-mail só aparece se estiver **publicado** para aquela pessoa. A Exa recebe instrução explícita para nunca deduzir um e-mail a partir de um padrão.
 - Cada dado guarda a sua fonte. Um e-mail que veio do LinkedIn nunca é sobrescrito pela Exa.
 
+## Atualizar sem perder dados
+O Chrome **apaga todos os dados de uma extensão quando ela é removida**. Para atualizar:
+1. Substitua os arquivos **na mesma pasta** (`git pull` ou descompacte o zip por cima).
+2. Em `chrome://extensions`, clique em **⟳** no Nexo. **Não remova a extensão.**
+
+Se precisar reinstalar, o Nexo tem duas cópias de segurança automáticas:
+- **Arquivo:** `Downloads/Nexo/nexo-backup.json`, atualizado a cada mudança e uma vez por dia. Numa instalação nova, o painel mostra **Restaurar do arquivo**.
+- **Servidor:** com login, as configurações e chaves ficam no seu cofre pessoal e voltam sozinhas no próximo login.
+
 ## Princípio de design: humano no controle
 O Nexo **nunca envia nada sozinho**. Ele preenche o texto e você revisa e envia. Ações em massa automáticas violam os Termos do LinkedIn e podem levar ao bloqueio da conta.
 

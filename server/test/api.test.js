@@ -184,3 +184,18 @@ test("Google: e-mail não autorizado precisa de convite, e com convite entra na 
   assert.equal(r.status, 200);
   assert.equal(r.team.id, team.id);
 });
+
+test("cofre pessoal: grava, lê, ignora versão antiga e é isolado por usuário", async () => {
+  const me = { token: ana }; // sessão já existente (novos logins esbarrariam no limite por IP, que é o comportamento certo)
+  assert.deepEqual(await api("/me/vault", { token: me.token }).then((r) => r.data), null);
+  assert.equal((await api("/me/vault", { token: me.token, body: { data: { anthropicKey: "sk-1", tone: "direto" }, updated_at: 200 } })).saved, true);
+  assert.equal((await api("/me/vault", { token: me.token, body: { data: { anthropicKey: "velha" }, updated_at: 100 } })).saved, false);
+  const v = await api("/me/vault", { token: me.token });
+  assert.equal(v.data.anthropicKey, "sk-1");
+  assert.equal(v.updated_at, 200);
+  const other = (await pool.query("insert into nexo_users(email) values ('zed@x.com') returning id")).rows[0];
+  const otherTok = "tok-zed";
+  await pool.query("insert into nexo_sessions(token_hash, user_id, expires_at) values (encode(sha256($1::bytea),'hex'), $2, now() + interval '1 day')", [otherTok, other.id]);
+  assert.equal((await api("/me/vault", { token: otherTok })).data, null);
+  assert.equal((await api("/me/vault", { body: { data: {}, updated_at: 1 } })).status, 401);
+});
