@@ -1,0 +1,38 @@
+# Nexo na sua VPS: PostgreSQL + API + Caddy (HTTPS automático via Let's Encrypt).
+# Uso: cp .env.example .env && editar && docker compose up -d --build
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: nexo
+      POSTGRES_USER: nexo
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexo -d nexo"]
+      interval: 10s
+      retries: 5
+    # sem "ports": o banco não fica exposto na internet
+
+  api:
+    build: ../server
+    restart: unless-stopped
+    depends_on: { db: { condition: service_healthy } }
+    environment:
+      DATABASE_URL: postgres://nexo:${POSTGRES_PASSWORD}@db:5432/nexo
+      SIGNUP_CODE: ${SIGNUP_CODE:?defina SIGNUP_CODE no .env}
+      SESSION_DAYS: ${SESSION_DAYS:-30}
+      TRUST_PROXY: "1"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on: [api]
+    ports: ["80:80", "443:443"]
+    environment: { NEXO_DOMAIN: "${NEXO_DOMAIN:?defina NEXO_DOMAIN no .env}" }
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+
+volumes: { pgdata: {}, caddy_data: {} }

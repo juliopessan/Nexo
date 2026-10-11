@@ -1,89 +1,84 @@
-// Sincronização em nuvem via Supabase (REST + RLS). Last-write-wins por registro usando updatedAt;
-// o cursor de pull usa o relógio do servidor (server_ts) para não depender do relógio de cada máquina.
+// Sincronização com o servidor próprio do Nexo (server/). Last-write-wins por registro usando updatedAt;
+// o cursor de pull é a sequência do servidor, que reflete a ordem de commit de cada equipe.
 const NexoSync = (() => {
   const S = () => NexoStore.getSettings();
 
-  async function call(path, { method = "GET", body, headers = {}, auth = true } = {}) {
+  async function call(path, { body, auth = true } = {}) {
     const s = await S();
-    if (!s.supabaseUrl || !s.supabaseAnonKey) throw new Error("Configure a URL e a anon key do Supabase.");
-    if (auth) await ensureFreshToken();
-    const token = auth ? (await S()).session?.access_token : s.supabaseAnonKey;
-    const res = await fetch(`${s.supabaseUrl.replace(/\/$/, "")}${path}`, {
-      method,
-      headers: { apikey: s.supabaseAnonKey, Authorization: `Bearer ${token}`, "content-type": "application/json", ...headers },
+    if (!s.serverUrl) throw new Error("Configure o endereço do servidor na aba Config.");
+    if (auth && !s.session?.token) throw new Error("Faça login na aba Config.");
+    const res = await fetch(`${s.serverUrl.replace(/\/$/, "")}${path}`, {
+      method: body === undefined ? "GET" : "POST",
+      headers: { "content-type": "application/json", ...(auth && { authorization: `Bearer ${s.session.token}` }) },
       body: body === undefined ? undefined : JSON.stringify(body)
     });
-    const text = await res.text();
-    const data = text ? JSON.parse(text) : null;
-    if (!res.ok) throw new Error(data?.msg || data?.message || data?.error_description || `Supabase HTTP ${res.status}`);
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401 && auth) await NexoStore.saveSettings({ session: null });
+    if (!res.ok) throw new Error(data.error || `Servidor respondeu HTTP ${res.status}`);
     return data;
   }
 
-  const storeSession = (d) => NexoStore.saveSettings({
-    session: { access_token: d.access_token, refresh_token: d.refresh_token, expires_at: Date.now() + d.expires_in * 1000, user_id: d.user?.id, email: d.user?.email }
-  });
+  const resetTeamState = { syncCursor: null, lastPushed: {} };
+  const useTeam = (t) => NexoStore.saveSettings({ teamId: t.id, teamName: t.name, inviteCode: t.invite_code, teamRole: t.role, ...resetTeamState });
 
-  async function login(email, password) {
-    // A senha só trafega nesta chamada; guardamos apenas os tokens da sessão.
-    storeSession(await call("/auth/v1/token?grant_type=password", { method: "POST", body: { email, password }, auth: false }));
+  async function startSession(d) {
+    // A senha só trafega nesta chamada; guardamos apenas o token da sessão.
+    await NexoStore.saveSettings({ session: { token: d.token, email: d.user.email, user_id: d.user.id } });
+    if (d.team) return useTeam(d.team);
+    const { teams } = await call("/me");
+    const { teamId } = await S();
+    const keep = teams.find((t) => t.id === teamId) || (teams.length === 1 && teams[0]);
+    if (keep) await useTeam(keep);
   }
 
-  async function ensureFreshToken() {
-    const { session } = await S();
-    if (!session) throw new Error("Faça login na aba Config.");
-    if (session.expires_at - Date.now() > 60_000) return;
-    await storeSession(await call("/auth/v1/token?grant_type=refresh_token", { method: "POST", body: { refresh_token: session.refresh_token }, auth: false }));
+  const login = async (email, password) => startSession(await call("/auth/login", { body: { email, password }, auth: false }));
+  const register = async (email, password, inviteCode, signupCode) =>
+    startSession(await call("/auth/register", { body: { email, password, inviteCode: inviteCode || undefined, signupCode: signupCode || undefined }, auth: false }));
+
+  async function logout() {
+    await call("/auth/logout", { body: {} }).catch(() => {});
+    await NexoStore.saveSettings({ session: null, teamId: null, teamName: null, inviteCode: null, teamRole: null, ...resetTeamState });
   }
 
-  async function logout() { await NexoStore.saveSettings({ session: null, teamId: null, inviteCode: null, syncCursor: null, lastPushed: {} }); }
-
-  async function createTeam(name) {
-    const [team] = await call("/rest/v1/rpc/nexo_create_team", { method: "POST", body: { team_name: name } });
-    await NexoStore.saveSettings({ teamId: team.id, inviteCode: team.invite_code, teamName: team.name, syncCursor: null, lastPushed: {} });
-    return team;
-  }
-
-  async function joinTeam(code) {
-    const [team] = await call("/rest/v1/rpc/nexo_join_team", { method: "POST", body: { code } });
-    await NexoStore.saveSettings({ teamId: team.id, inviteCode: team.invite_code, teamName: team.name, syncCursor: null, lastPushed: {} });
-    return team;
-  }
+  const createTeam = async (name) => { const t = await call("/teams", { body: { name } }); await useTeam(t); return t; };
+  const joinTeam = async (code) => { const t = await call("/teams/join", { body: { code } }); await useTeam(t); return t; };
+  const listTeams = async () => (await call("/me")).teams;
+  const switchTeam = async (id) => { const t = (await listTeams()).find((x) => x.id === id); if (t) await useTeam(t); return t; };
+  const teamInfo = async () => call(`/teams/${(await S()).teamId}`);
+  const rotateInvite = async () => { const t = await call(`/teams/${(await S()).teamId}/invite/rotate`, { body: {} }); await NexoStore.saveSettings({ inviteCode: t.invite_code }); return t; };
 
   let running = null;
   function syncNow() { return (running ||= run().finally(() => (running = null))); }
 
   async function run() {
     const s = await S();
-    if (!s.session || !s.teamId) return { skipped: true };
+    if (!s.session?.token || !s.teamId) return { skipped: true };
     const lastPushed = { ...(s.lastPushed || {}) };
     const local = await chrome.storage.local.get(["contacts", "templates"]);
     const contacts = local.contacts || {};
     const templates = Object.fromEntries((local.templates || []).map((t) => [t.id, t]));
 
-    // 1) Pull: aplica registros remotos mais novos que os locais
-    const rows = await call(`/rest/v1/nexo_records?team_id=eq.${s.teamId}` + (s.syncCursor ? `&server_ts=gt.${encodeURIComponent(s.syncCursor)}` : "") + "&order=server_ts.asc&limit=1000");
-    let cursor = s.syncCursor;
+    // 1) Pull paginado: aplica registros remotos mais novos que os locais
+    let cursor = s.syncCursor || "0";
     const incoming = [];
-    for (const r of rows) {
-      cursor = r.server_ts;
-      const target = r.kind === "contact" ? contacts : templates;
-      if ((target[r.id]?.updatedAt || 0) < r.updated_at) {
-        incoming.push(r);
-        lastPushed[`${r.kind}:${r.id}`] = r.updated_at;
+    for (let more = true; more;) {
+      const page = await call(`/teams/${s.teamId}/records?after=${encodeURIComponent(cursor)}`);
+      for (const r of page.rows) {
+        const target = r.kind === "contact" ? contacts : templates;
+        if ((target[r.id]?.updatedAt || 0) < r.updated_at) incoming.push(r);
+        lastPushed[`${r.kind}:${r.id}`] = Math.max(lastPushed[`${r.kind}:${r.id}`] || 0, r.updated_at);
       }
+      cursor = page.cursor;
+      more = page.more;
     }
 
-    // 2) Push: tudo que mudou localmente desde o último envio
+    // 2) Push: tudo que mudou localmente desde o último envio (o servidor descarta o que for mais antigo)
     const dirty = [
       ...Object.values(contacts).map((d) => ["contact", d]),
       ...Object.values(templates).map((d) => ["template", d])
-    ].filter(([k, d]) => d.updatedAt && d.updatedAt > (lastPushed[`${k}:${d.id}`] || 0))
-     .map(([kind, d]) => ({ team_id: s.teamId, kind, id: d.id, data: d, updated_at: d.updatedAt }));
-    for (let i = 0; i < dirty.length; i += 200) {
-      await call("/rest/v1/nexo_records?on_conflict=team_id,kind,id", {
-        method: "POST", body: dirty.slice(i, i + 200), headers: { Prefer: "resolution=merge-duplicates,return=minimal" }
-      });
-    }
+    ].filter(([k, d]) => d.id && d.updatedAt && d.updatedAt > (lastPushed[`${k}:${d.id}`] || 0))
+     .map(([kind, d]) => ({ kind, id: d.id, data: d, updated_at: d.updatedAt }));
+    for (let i = 0; i < dirty.length; i += 500) await call(`/teams/${s.teamId}/records`, { body: { rows: dirty.slice(i, i + 500) } });
     dirty.forEach((r) => (lastPushed[`${r.kind}:${r.id}`] = r.updated_at));
 
     // Relê o estado atual antes de gravar: edições feitas durante a requisição não podem ser perdidas.
@@ -100,5 +95,5 @@ const NexoSync = (() => {
     return { pulled: incoming.length, pushed: dirty.length };
   }
 
-  return { login, logout, createTeam, joinTeam, syncNow };
+  return { login, register, logout, createTeam, joinTeam, listTeams, switchTeam, teamInfo, rotateInvite, syncNow };
 })();

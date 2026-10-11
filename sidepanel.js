@@ -110,30 +110,51 @@ async function openDetail(id) {
 
 async function renderConfig() {
   const st = await S.getSettings();
-  for (const f of ["#aiForm", "#sbForm", "#hunterForm"]) {
+  for (const f of ["#aiForm", "#serverForm", "#hunterForm"]) {
     for (const el of $(f).elements) if (el.name && document.activeElement !== el) el.value = st[el.name] || "";
   }
   const box = $("#teamBox");
+  if (!st.serverUrl) { box.innerHTML = `<p class="hint">Informe o endereço do seu servidor Nexo para usar em equipe.</p>`; return; }
   if (!st.session) {
-    box.innerHTML = `<form id="loginForm"><label>E-mail<input name="email" type="email" required></label><label>Senha<input name="password" type="password" required></label><button>Entrar</button></form>
-      <p class="hint">Crie usuários em Authentication → Users no Supabase.</p>`;
-    $("#loginForm").onsubmit = (e) => { e.preventDefault(); run(ask({ type: "login", ...Object.fromEntries(new FormData(e.target)) })); };
-  } else if (!st.teamId) {
-    box.innerHTML = `<p>Conectado como <b>${esc(st.session.email)}</b></p>
-      <form id="newTeam"><input name="name" placeholder="Nome da equipe" required><button>Criar equipe</button></form>
-      <form id="joinTeam"><input name="code" placeholder="Código de convite" required><button>Entrar na equipe</button></form>
-      <button class="ghost" id="logout">Sair</button>`;
-    $("#newTeam").onsubmit = (e) => { e.preventDefault(); run(ask({ type: "create-team", name: e.target.name.value })); };
-    $("#joinTeam").onsubmit = (e) => { e.preventDefault(); run(ask({ type: "join-team", code: e.target.code.value.trim() })); };
-    $("#logout").onclick = () => run(ask({ type: "logout" }));
-  } else {
-    box.innerHTML = `<div class="kv"><div><span>Equipe:</span> <b>${esc(st.teamName || "")}</b></div>
-      <div><span>Convite:</span> <code>${esc(st.inviteCode || "")}</code> <small>(compartilhe só com sua equipe)</small></div>
-      <div><span>Conta:</span> ${esc(st.session.email)}</div></div>
-      <div class="row"><button id="syncBtn">Sincronizar agora</button><button class="ghost" id="logout">Sair</button></div>`;
-    $("#syncBtn").onclick = () => run(ask({ type: "sync-now" }).then((r) => alert(`Recebidos: ${r.pulled} · Enviados: ${r.pushed}`)));
-    $("#logout").onclick = () => run(ask({ type: "logout" }));
+    box.innerHTML = `<form id="authForm">
+        <label>E-mail<input name="email" type="email" required autocomplete="username"></label>
+        <label>Senha (mín. 10 caracteres)<input name="password" type="password" required minlength="10" autocomplete="current-password"></label>
+        <div class="row"><button name="mode" value="login">Entrar</button></div>
+        <details><summary>Criar conta</summary>
+          <label>Código de convite da equipe<input name="inviteCode"></label>
+          <label>…ou código de cadastro do servidor (fundadores)<input name="signupCode" type="password" autocomplete="off"></label>
+          <button name="mode" value="register" class="ghost">Criar conta</button>
+        </details></form>`;
+    $("#authForm").onsubmit = (e) => {
+      e.preventDefault();
+      const f = Object.fromEntries(new FormData(e.target));
+      run(ask(e.submitter.value === "register"
+        ? { type: "register", email: f.email, password: f.password, inviteCode: f.inviteCode.trim(), signupCode: f.signupCode.trim() }
+        : { type: "login", email: f.email, password: f.password }));
+    };
+    return;
   }
+  const teams = await ask({ type: "list-teams" }).catch(() => []);
+  const picker = teams.length > 1 ? `<label>Equipe ativa<select id="teamPick">${teams.map((t) => `<option value="${esc(t.id)}" ${t.id === st.teamId ? "selected" : ""}>${esc(t.name)}</option>`).join("")}</select></label>` : "";
+  const joinForms = `<form id="newTeam"><input name="name" placeholder="Nome da nova equipe" required><button>Criar equipe</button></form>
+      <form id="joinTeam"><input name="code" placeholder="Código de convite" required><button>Entrar em equipe</button></form>`;
+  if (!st.teamId) {
+    box.innerHTML = `<p>Conectado como <b>${esc(st.session.email)}</b></p>${picker}${joinForms}<button class="ghost" id="logout">Sair</button>`;
+  } else {
+    const info = await ask({ type: "team-info" }).catch(() => null);
+    box.innerHTML = `${picker}<div class="kv"><div><span>Equipe:</span> <b>${esc(st.teamName || "")}</b></div>
+      <div><span>Convite:</span> <code>${esc(st.inviteCode || "")}</code> <small>(compartilhe só com sua equipe)</small></div>
+      <div><span>Conta:</span> ${esc(st.session.email)}</div>
+      ${info ? `<div><span>Membros:</span> ${info.members.map((m) => esc(m.email) + (m.role === "owner" ? " 👑" : "")).join(", ")}</div>` : ""}</div>
+      <div class="row"><button id="syncBtn">Sincronizar agora</button>${st.teamRole === "owner" ? `<button class="ghost" id="rotate">Novo convite</button>` : ""}<button class="ghost" id="logout">Sair</button></div>
+      <details><summary>Outra equipe</summary>${joinForms}</details>`;
+    $("#syncBtn").onclick = () => run(ask({ type: "sync-now" }).then((r) => alert(`Recebidos: ${r.pulled} · Enviados: ${r.pushed}`)));
+    if ($("#rotate")) $("#rotate").onclick = () => confirm("O convite atual deixará de funcionar. Continuar?") && run(ask({ type: "rotate-invite" }));
+  }
+  $("#newTeam").onsubmit = (e) => { e.preventDefault(); run(ask({ type: "create-team", name: e.target.name.value })); };
+  $("#joinTeam").onsubmit = (e) => { e.preventDefault(); run(ask({ type: "join-team", code: e.target.code.value.trim() })); };
+  $("#logout").onclick = () => run(ask({ type: "logout" }));
+  if ($("#teamPick")) $("#teamPick").onchange = (e) => run(ask({ type: "switch-team", id: e.target.value }));
 }
 const run = (p) => p.catch((e) => alert(e.message)).finally(render);
 const saveForm = (sel) => $(sel).onsubmit = async (e) => {
@@ -142,7 +163,23 @@ const saveForm = (sel) => $(sel).onsubmit = async (e) => {
   e.submitter.textContent = "Salvo ✔";
   setTimeout(() => render(), 900);
 };
-["#aiForm", "#sbForm", "#hunterForm"].forEach(saveForm);
+["#aiForm", "#hunterForm"].forEach(saveForm);
+
+// O servidor é escolhido pelo usuário: a permissão de rede é pedida só para aquela origem.
+$("#serverForm").onsubmit = async (e) => {
+  e.preventDefault();
+  let url;
+  try { url = new URL(e.target.serverUrl.value.trim()); } catch { return alert("Endereço inválido."); }
+  const local = ["localhost", "127.0.0.1"].includes(url.hostname);
+  if (url.protocol !== "https:" && !local) return alert("Use HTTPS (exceto localhost).");
+  const granted = await chrome.permissions.request({ origins: [`${url.origin}/*`] });
+  if (!granted) return alert("Sem a permissão o Nexo não consegue falar com o servidor.");
+  const st = await S.getSettings();
+  if (st.serverUrl && st.serverUrl !== url.origin) await ask({ type: "logout" }).catch(() => {});
+  await S.saveSettings({ serverUrl: url.origin });
+  e.submitter.textContent = "Salvo ✔";
+  setTimeout(render, 900);
+};
 
 async function renderSyncStatus() {
   const st = await S.getSettings();

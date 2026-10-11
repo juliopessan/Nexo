@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Nexo — CRM para LinkedIn",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Salve contatos do LinkedIn, organize em pipeline, use templates em DMs e comentários e nunca perca um follow-up.",
   "permissions": [
     "storage",
@@ -12,7 +12,6 @@
   "host_permissions": [
     "https://www.linkedin.com/*",
     "https://api.anthropic.com/*",
-    "https://*.supabase.co/*",
     "https://api.hunter.io/*"
   ],
   "background": {
@@ -43,5 +42,10 @@
       ],
       "run_at": "document_idle"
     }
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
   ]
 }

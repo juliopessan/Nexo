@@ -1,0 +1,36 @@
+name: CI
+on:
+  push: { branches: [main] }
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env: { POSTGRES_USER: nexo, POSTGRES_PASSWORD: nexo, POSTGRES_DB: nexo }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U nexo" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://nexo:nexo@localhost:5432/nexo
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: server/package-lock.json }
+      - name: Sintaxe da extensão e do servidor
+        run: for f in *.js server/*.js; do node --check "$f"; done
+      - name: Manifesto válido
+        run: node -e "const m=require('./manifest.json'); if(m.manifest_version!==3) process.exit(1)"
+      - run: npm ci
+        working-directory: server
+      - name: Testes de integração do servidor
+        run: npm test
+        working-directory: server
+      - name: Ponta a ponta (extensão + servidor + Postgres)
+        run: node tests/e2e.mjs
+      - name: Empacotar extensão
+        run: ./scripts/build-extension.sh
+      - uses: actions/upload-artifact@v4
+        with: { name: nexo-extension, path: dist/*.zip }

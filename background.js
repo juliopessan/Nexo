@@ -13,6 +13,11 @@ const handlers = {
   "enrich": ({ id }) => NexoEnrich.enrich(id),
   "sync-now": () => NexoSync.syncNow(),
   "login": ({ email, password }) => NexoSync.login(email, password).then(() => NexoSync.syncNow()),
+  "register": ({ email, password, inviteCode, signupCode }) => NexoSync.register(email, password, inviteCode, signupCode).then(() => NexoSync.syncNow()),
+  "list-teams": () => NexoSync.listTeams(),
+  "switch-team": ({ id }) => NexoSync.switchTeam(id).then((t) => NexoSync.syncNow().then(() => t)),
+  "team-info": () => NexoSync.teamInfo(),
+  "rotate-invite": () => NexoSync.rotateInvite(),
   "logout": () => NexoSync.logout(),
   "create-team": ({ name }) => NexoSync.createTeam(name).then((t) => NexoSync.syncNow().then(() => t)),
   "join-team": ({ code }) => NexoSync.joinTeam(code).then((t) => NexoSync.syncNow().then(() => t))
