@@ -47,3 +47,4 @@ details{margin:8px 0}summary{cursor:pointer;color:var(--b);font-weight:600}
 #bridgeSnippet{font:11px ui-monospace,monospace}
 .google{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;background:#fff;color:#1f1f1f;border:1px solid #dadce0;padding:9px}
 .google:hover{background:#f8fafd}.filebtn{display:inline-flex;align-items:center;cursor:pointer;color:var(--b);border:1px solid var(--b);border-radius:8px;padding:7px 12px;font-weight:600;font-size:13px}
+#diagOut{white-space:pre-wrap;font:11px ui-monospace,monospace;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px;max-height:260px;overflow:auto;cursor:copy}

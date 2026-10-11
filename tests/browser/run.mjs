@@ -18,7 +18,8 @@ let aiCalls = 0;
 await ctx.route("https://www.linkedin.com/**", (route) => {
   const u = new URL(route.request().url());
   const newUi = u.searchParams.has("newui");
-  const body = u.pathname.startsWith("/notifications") ? fx.notifications
+  const body = u.pathname.startsWith("/notifications") && u.searchParams.has("hard") ? fx.notificationsHard
+    : u.pathname.startsWith("/notifications") ? fx.notifications
     : u.pathname.startsWith("/feed/update/urn:li:activity:7001") ? fx.tokenPost
     : u.pathname.startsWith("/feed/update/urn:li:activity:99") ? fx.myPost
     : u.pathname.startsWith("/messaging") && u.searchParams.has("list") ? fx.inboxList
@@ -178,6 +179,17 @@ const kz = await page.textContent('article[data-id*="7002"] .reply-box [contente
 check(kz === "Kosta Z. Sugestão IA dois", `notificações → post: resposta inserida no comentário certo ("${kz}")`);
 ({ queue = {} } = await storage("queue"));
 check(queue["c:7001:7002"]?.status === "done", "notificações: item marcado como feito");
+
+// 6b) Notificações "difíceis" (estrutura sem classes conhecidas) + diagnóstico da aba
+await page.goto("https://www.linkedin.com/notifications/?hard=1");
+await page.waitForTimeout(900);
+({ queue = {} } = await storage("queue"));
+const lia = queue["c:9001:9002"];
+check(lia?.author?.name === "Lia Prado" && lia.text.startsWith("Esse ponto") && lia.priority === 1, `notificações sem classes: comentário reconhecido (${JSON.stringify(lia && { a: lia.author.name, t: lia.text.slice(0, 15), p: lia.priority })})`);
+check(!Object.values(queue).some((q) => q.author?.name === "Rui"), "notificações sem classes: reação ignorada");
+const tabId = await sw.evaluate(() => chrome.tabs.query({ url: "https://www.linkedin.com/notifications/*" }).then((t) => t[0].id));
+const diag = await sw.evaluate((id) => chrome.tabs.sendMessage(id, { type: "nexo:diagnose" }), tabId);
+check(diag?.counts?.notifParsed === 1 && diag.notifSamples[0].headline === "<nome> commented on your post.", `diagnóstico: relatório sem dados pessoais (${JSON.stringify(diag?.notifSamples?.[0])})`);
 
 // 4) Painel lateral
 const panel = watch(await ctx.newPage(), "panel");

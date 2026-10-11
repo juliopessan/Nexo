@@ -125,3 +125,17 @@ export const tokenPost = `<!doctype html><html><body><main>
     </article>
   </div>
 </main></body></html>`;
+
+// Notificações "difíceis": sem nt-card, nome em <strong> separado, título duplicado para leitor de tela, link fora do texto
+export const notificationsHard = `<!doctype html><html><body><main><div class="scaffold">
+  <div class="x1"><div class="x2">
+    <span class="visually-hidden" style="position:absolute;clip:rect(0 0 0 0)">Lia Prado commented on your post.</span>
+    <div class="x3"><span><strong>Lia Prado</strong> commented on your post.</span></div>
+    <div class="x4">Esse ponto sobre cache de prompts é ótimo. Vocês medem por feature?</div>
+    <div class="x5">AI doesn't become expensive overnight.</div>
+    <div class="x6">3 reactions • 1 comment</div><span>2h</span>
+    <a class="x7" href="https://www.linkedin.com/feed/update/urn:li:activity:9001/?commentUrn=urn%3Ali%3Acomment%3A%28activity%3A9001%2C9002%29">Ver</a>
+  </div></div>
+  <div class="x1"><div class="x2"><div class="x3"><span><strong>Rui</strong> reacted to your post.</span></div>
+    <a class="x7" href="https://www.linkedin.com/feed/update/urn:li:activity:9001/">Ver</a></div></div>
+</div></main></body></html>`;

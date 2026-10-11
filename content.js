@@ -282,27 +282,45 @@
   }
 
   // Notificações: "X commented on your post", "X replied to your comment", "X mentioned you…"
-  const NOTIF_RE = /^(.+?)\s+(commented on|replied to|mentioned you|comentou (?:no|na|em)|respondeu (?:ao|a)|mencionou você)/i;
+  const NOTIF_RE = /^(.+?)\s+(commented on|replied to|mentioned you|comentou|respondeu|mencionou)/i;
+  const NOTIF_VERB = /\b(commented on|replied to|mentioned you|comentou|respondeu|mencionou)\b/i;
+  const CARD_SEL = "article, li, [data-urn], .nt-card, [data-finite-scroll-hotkey-item]";
+  const POST_LINK = 'a[href*="/feed/update/"], a[href*="/posts/"], a[href*="commentUrn"], a[href*="/comment/"]';
+
+  // Cards candidatos a partir do TEXTO ("X commented on your post"), não de uma classe ou link específico
+  function notificationCandidates() {
+    const root = document.querySelector("main") || document.body;
+    const cards = new Set();
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: (n) => (NOTIF_VERB.test(n.nodeValue) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP) });
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      let card = n.parentElement.closest(CARD_SEL);
+      if (!card) { // sem tag de item: sobe até um ancestral que tenha um link de post
+        card = n.parentElement;
+        for (let i = 0; i < 8 && card.parentElement && card.parentElement !== root && !card.querySelector(POST_LINK); i++) card = card.parentElement;
+      }
+      if (card && !card.closest("[data-nexo-ui]")) cards.add(card);
+    }
+    return [...cards];
+  }
+
   function notificationCards() {
     if (!location.pathname.startsWith("/notifications")) return [];
-    const seen = new Set();
-    return [...document.querySelectorAll('a[href*="/feed/update/"]')].map((a) => {
-      // card da notificação: o contêiner de item mais próximo (classes mudam; tags e data-* mudam menos)
-      const card = a.closest("article, li, [data-urn], .nt-card, [data-finite-scroll-hotkey-item]") || a.parentElement;
-      if (seen.has(card)) return null;
-      seen.add(card);
+    return notificationCandidates().map((card) => {
       const lines = card.innerText.split("\n").map((l) => l.trim()).filter(Boolean);
       const hi = lines.findIndex((l) => NOTIF_RE.test(l));
       if (hi < 0) return null;
+      const a = card.querySelector(POST_LINK) || [...card.querySelectorAll("a[href]")].find((x) => !/\/in\//.test(x.getAttribute("href")));
       const m = NOTIF_RE.exec(lines[hi]);
       const author = m[1].replace(/\s+and \d+ others?$|\s+e (?:mais )?\d+ (?:outras? pessoas?|outros?)$/i, "").trim();
-      const href = new URL(a.getAttribute("href"), location.origin);
+      const href = new URL(a ? a.getAttribute("href") : location.href, location.origin);
       const cUrn = href.searchParams.get("commentUrn") || href.searchParams.get("replyUrn") || "";
       const isMention = /mention|mencion/i.test(m[2]);
       // "commented on your post" / "comentou na sua publicação" = SEU post → prioridade máxima
       const onMyPost = /your post|sua publica|seu post/i.test(lines[hi]);
       // linhas depois do título: [comentário, texto do post, "N reactions • N comments", "20h"]
-      const rest = lines.slice(hi + 1).filter((l) => !/^\d+\s*(reactions?|reações?|comments?|comentários?)|^\d+[smhdw]$|^\d+\s*(min|h|d|sem|w)/i.test(l));
+      // ignora: contadores, tempo, título repetido (texto para leitor de tela), "View profile", botões do Nexo
+      const rest = lines.slice(hi + 1).filter((l) => l !== lines[hi] && !NOTIF_RE.test(l)
+        && !/^\d+\s*(reactions?|reações?|comments?|comentários?)|^\d+[smhdw]$|^\d+\s*(min|h|d|sem|w)\b|^(view|ver)\s|^(status is|unread|não lida)|responder com ia/i.test(l));
       const commentText = isMention ? (rest[0] || "") : (rest.length > 1 ? rest[0] : "");
       const postText = isMention ? "" : (rest.length > 1 ? rest.slice(1).join(" ") : rest[0] || "");
       return {
@@ -325,6 +343,7 @@
       if (card.dataset.nexo) continue;
       card.dataset.nexo = "1";
       const bar = Object.assign(document.createElement("div"), { className: "nexo-post-bar" });
+      bar.dataset.nexoUi = "1";
       bar.append(chip("✨ Responder com IA", (btn) => pickAI(btn, "comment-reply",
         { postText: item.postText, comment: { author: item.author.name, text: item.text }, contact: { name: item.author.name } },
         async (value) => {
@@ -508,6 +527,34 @@
     await NexoStore.saveSettings({ lastBridgeImport: { at: Date.now(), received: raw.length, accepted: items.length } });
     reply({ ok: true, received: raw.length, accepted: items.length, added, rejected: raw.length - items.length });
     if (items.length) toast(`Nexo: ${items.length} rascunho(s) da triagem do Claude na Caixa de entrada`);
+  });
+
+  // Diagnóstico: o painel pergunta o que o Nexo enxerga nesta aba (sem textos de mensagens, só estrutura)
+  chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
+    if (msg?.type !== "nexo:diagnose") return;
+    (async () => {
+      const st = await NexoStore.getSettings();
+      const cands = location.pathname.startsWith("/notifications") ? notificationCandidates() : [];
+      const parsed = notificationCards();
+      const describe = (el) => el && `${el.tagName.toLowerCase()}${el.id ? "#" + el.id : ""}${[...el.classList].slice(0, 3).map((c) => "." + c).join("")}`;
+      reply({
+        version: chrome.runtime.getManifest().version, path: location.pathname, me: st.me?.id || null,
+        counts: {
+          postLinks: document.querySelectorAll(POST_LINK).length, comments: document.querySelectorAll(COMMENT).length,
+          posts: document.querySelectorAll("[data-nexo-post]").length, composers: document.querySelectorAll("form.msg-form, [contenteditable='true']").length,
+          threadLinks: document.querySelectorAll('a[href*="/messaging/thread/"]').length, notifCandidates: cands.length, notifParsed: parsed.length
+        },
+        notifSamples: cands.slice(0, 3).map((c) => {
+          const lines = c.innerText.split("\n").map((l) => l.trim()).filter(Boolean);
+          const hi = lines.findIndex((l) => NOTIF_RE.test(l));
+          return {
+            card: describe(c), lines: lines.length, headline: hi >= 0 ? lines[hi].replace(/^.+?\s+(commented|replied|mentioned|comentou|respondeu|mencionou)/i, "<nome> $1").slice(0, 80) : null,
+            links: [...c.querySelectorAll("a[href]")].slice(0, 4).map((x) => x.getAttribute("href").replace(/[?#].*$/, "").replace(/\/in\/[^/]+/, "/in/<perfil>").slice(0, 70))
+          };
+        })
+      });
+    })();
+    return true;
   });
 
   // LinkedIn é SPA: observa mudanças de DOM com debounce

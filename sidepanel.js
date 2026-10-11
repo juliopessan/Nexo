@@ -361,6 +361,27 @@ $("#goalsForm").onsubmit = async (e) => {
   setTimeout(render, 900);
 };
 
+$("#diagnose").onclick = async () => {
+  const out = $("#diagOut");
+  out.hidden = false;
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.url?.startsWith("https://www.linkedin.com/")) { out.textContent = "Abra uma aba do LinkedIn e clique de novo."; return; }
+  try {
+    const r = await chrome.tabs.sendMessage(tab.id, { type: "nexo:diagnose" });
+    const c = r.counts;
+    const hints = [];
+    if (r.path.startsWith("/notifications") && !c.notifCandidates) hints.push("Nenhum card de notificação reconhecido. Copie este relatório e envie.");
+    if (c.notifCandidates && !c.notifParsed) hints.push("Cards encontrados, mas sem texto de comentário legível. Copie este relatório e envie.");
+    if (c.notifParsed) hints.push(`${c.notifParsed} comentário(s) reconhecido(s): veja a Caixa de entrada.`);
+    if (!r.me) hints.push("Perfil não definido: abra seu perfil e clique em ⭐ Este sou eu (necessário para posts abertos).");
+    out.textContent = `Nexo ${r.version} ativo nesta aba ✔\n${hints.join("\n")}\n\n${JSON.stringify(r, null, 1)}`;
+  } catch {
+    out.textContent = "O Nexo NÃO está ativo nesta aba.\nRecarregue a página do LinkedIn (F5): abas abertas antes de instalar/atualizar a extensão ficam sem o Nexo.";
+  }
+  out.onclick = () => navigator.clipboard.writeText(out.textContent);
+  out.title = "Clique para copiar";
+};
+
 $("#q").oninput = render;
 $("#stageFilter").onchange = render;
 $("#tplForm").onsubmit = async (e) => {
