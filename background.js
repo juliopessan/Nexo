@@ -30,6 +30,16 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   return true;
 });
 
+// Badge no ícone: quantos itens prioritários (seus posts + DMs) esperam resposta
+async function updateBadge() {
+  const { queue = {} } = await chrome.storage.local.get("queue");
+  const n = Object.values(queue).filter((q) => q.status === "open" && q.priority === 1).length;
+  await chrome.action.setBadgeBackgroundColor({ color: "#F97316" });
+  await chrome.action.setBadgeText({ text: n ? String(Math.min(n, 99)) : "" });
+}
+chrome.storage.onChanged.addListener((ch) => { if (ch.queue) updateBadge(); });
+updateBadge();
+
 // Push rápido após edições locais (o alarme de 1 min cobre o service worker adormecido)
 let syncTimer;
 chrome.storage.onChanged.addListener((changes) => {

@@ -71,16 +71,19 @@ async function renderInbox() {
   }).join("");
 
   const queue = Object.values(await S.getQueue()).filter((q) => q.status === "open" && (!qFilter || q.kind === qFilter))
-    .sort((a, b) => b.seenAt - a.seenAt);
+    // Seus posts e suas DMs primeiro; dentro de cada grupo, os mais recentes
+    .sort((a, b) => (a.priority || 2) - (b.priority || 2) || b.seenAt - a.seenAt);
   if (!queue.length) {
-    $("#queue").innerHTML = `<p class="empty">${!st.me ? "Abra o <b>seu</b> perfil no LinkedIn e clique em <b>⭐ Este sou eu</b> para o Nexo monitorar comentários nos seus posts." :
+    $("#queue").innerHTML = `<p class="empty">${!st.me && !qFilter ? "Abra suas <b>Notificações → Meus posts</b> ou suas <b>Mensagens</b>: comentários e DMs aparecem aqui. Para monitorar também os posts abertos, clique em <b>⭐ Este sou eu</b> no seu perfil.<br><br>" : ""}${!st.me ? "Abra o <b>seu</b> perfil no LinkedIn e clique em <b>⭐ Este sou eu</b> para o Nexo monitorar comentários nos seus posts." :
       "Nada pendente. Abra seus posts, notificações ou mensagens: comentários sem resposta e DMs não lidas aparecem aqui."}</p>`;
     return;
   }
   $("#queue").innerHTML = queue.map((q) => {
     const d = drafts[q.id];
     return `<li class="qi" data-q="${esc(q.id)}">
-      <header><span>${q.kind === "dm" ? "✉️" : "💬"}</span><b>${esc(q.author?.name || "?")}</b><small>${new Date(q.seenAt).toLocaleDateString("pt-BR")}</small></header>
+      <header><span>${q.kind === "dm" ? "✉️" : "💬"}</span><b>${esc(q.author?.name || "?")}</b>
+        ${q.priority === 1 ? `<span class="prio">${q.kind === "dm" ? "Sua DM" : "Seu post"}</span>` : ""}
+        <small>${new Date(q.seenAt).toLocaleDateString("pt-BR")}</small></header>
       <blockquote>${esc(q.text)}</blockquote>
       ${d?.list ? `<div class="drafts">${d.list.map((x, i) => `<button data-pick="${i}" class="${d.pick === i ? "on" : ""}">${esc(x)}</button>`).join("")}</div>
         <textarea data-edit>${esc(d.text || "")}</textarea>` : ""}
@@ -109,7 +112,7 @@ async function generateFor(q) {
   try {
     const { contacts } = await S.get();
     const c = contacts[q.author?.id];
-    const contact = c ? { name: c.name, headline: c.headline, company: c.company, stage: c.stage, notes: c.notes } : { name: q.author?.name };
+    const contact = c ? { name: c.name, headline: c.headline, company: c.company, stage: c.stage, notes: c.notes, about: c.about, interests: c.interests } : { name: q.author?.name };
     const list = q.kind === "comment"
       ? await ask({ type: "ai-suggest", kind: "comment-reply", context: { postText: q.postText, comment: { author: q.author?.name, text: q.text }, contact } })
       : await ask({ type: "ai-suggest", kind: "reply", context: { thread: [`${q.author?.name}: ${q.text}`], contact } });
@@ -123,7 +126,7 @@ async function generateFor(q) {
 
 async function openItem(q) {
   const text = drafts[q.id]?.text?.trim();
-  if (text) await S.setPending({ url: q.url, kind: q.kind, targetId: q.targetId, text });
+  if (text) await S.setPending({ url: q.url, kind: q.kind, targetId: q.targetId, text, author: q.author?.name, text0: q.text });
   const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (active?.url?.startsWith("https://www.linkedin.com/")) await chrome.tabs.update(active.id, { url: q.url });
   else await chrome.tabs.create({ url: q.url });
@@ -137,9 +140,13 @@ async function openDetail(id) {
     <button class="ghost" id="back">← Voltar</button>
     <div class="card" style="margin:10px 0">${avatar(c)}<div><b>${esc(c.name)}</b><small>${esc(c.headline || "")}</small></div></div>
     <div class="kv">
-      <div><span>E-mail:</span> ${c.email ? `<a href="mailto:${esc(c.email)}">${esc(c.email)}</a> <small>(${esc(c.emailSource || "?")}${c.emailScore != null ? ` · confiança ${esc(c.emailScore)}%` : ""})</small>` : "—"}</div>
+      <div><span>E-mail:</span> ${c.email ? `<a href="mailto:${esc(c.email)}">${esc(c.email)}</a> <small>(${esc(c.emailSource || "?")}${c.emailConfidence ? ` · confiança ${esc(c.emailConfidence)}` : ""})</small>` : "—"}</div>
+      ${c.about ? `<div><span>Sobre:</span> ${esc(c.about)}</div>` : ""}
+      ${(c.interests || []).length ? `<div><span>Temas:</span> ${c.interests.map(esc).join(" · ")}</div>` : ""}
       ${c.companyInfo ? `<div><span>Empresa:</span> ${esc(c.companyInfo.name || c.company || "")} ${c.companyInfo.domain ? `· ${esc(c.companyInfo.domain)}` : ""}</div>
-      <div><span>Setor/porte:</span> ${esc(c.companyInfo.industry || "?")} · ${esc(c.companyInfo.employees || "?")} pessoas ${c.companyInfo.location ? `· ${esc(c.companyInfo.location)}` : ""}</div>` : ""}
+      <div><span>Setor/porte:</span> ${esc(c.companyInfo.industry || "?")} · ${esc(c.companyInfo.employees || "?")} pessoas ${c.companyInfo.location ? `· ${esc(c.companyInfo.location)}` : ""}</div>
+      ${c.companyInfo.description ? `<div><span>Empresa:</span> ${esc(c.companyInfo.description)}</div>` : ""}
+      ${(c.companyInfo.sources || []).length ? `<div><span>Fontes:</span> ${c.companyInfo.sources.map((u) => `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(new URL(u).hostname)}</a>`).join(", ")}</div>` : ""}` : ""}
       ${(c.websites || []).map((w) => `<div><a href="${esc(w)}" target="_blank" rel="noopener">${esc(w)}</a></div>`).join("")}
     </div>
     <div class="row"><button class="ghost" id="enrich">🔎 Enriquecer</button><button class="ghost" id="aiDm">✨ Sugerir DM</button></div>
@@ -162,7 +169,7 @@ async function openDetail(id) {
   $("#aiDm").onclick = async (e) => {
     e.target.textContent = "Gerando…";
     try {
-      const list = await ask({ type: "ai-suggest", kind: "dm", context: { contact: { name: c.name, headline: c.headline, company: c.company, stage: c.stage, notes: c.notes } } });
+      const list = await ask({ type: "ai-suggest", kind: "dm", context: { contact: { name: c.name, headline: c.headline, company: c.company, stage: c.stage, notes: c.notes, about: c.about, interests: c.interests } } });
       $("#suggs").innerHTML = list.map((t) => `<div class="sugg" title="Clique para copiar">${esc(t)}</div>`).join("");
       document.querySelectorAll(".sugg").forEach((el) => el.onclick = () => { navigator.clipboard.writeText(el.textContent); el.style.borderColor = "#2e9d5b"; });
     } catch (err) { alert(err.message); }
@@ -186,7 +193,7 @@ async function renderConfig() {
   for (const el of $("#goalsForm").elements) if (el.name && document.activeElement !== el) el.value = goals[el.name];
   $("#meInfo").innerHTML = st.me ? `Seu perfil: <b>${esc(st.me.name)}</b>. Comentários nos seus posts entram na Caixa de entrada.`
     : "Abra seu perfil no LinkedIn e clique em ⭐ Este sou eu para ativar o monitoramento de comentários.";
-  for (const f of ["#aiForm", "#serverForm", "#hunterForm"]) {
+  for (const f of ["#aiForm", "#serverForm", "#exaForm"]) {
     for (const el of $(f).elements) if (el.name && document.activeElement !== el) el.value = st[el.name] || (el.tagName === "SELECT" ? el.options[0].value : "");
   }
   const box = $("#teamBox");
@@ -239,7 +246,7 @@ const saveForm = (sel) => $(sel).onsubmit = async (e) => {
   e.submitter.textContent = "Salvo ✔";
   setTimeout(() => render(), 900);
 };
-["#aiForm", "#hunterForm"].forEach(saveForm);
+["#aiForm", "#exaForm"].forEach(saveForm);
 
 // O servidor é escolhido pelo usuário: a permissão de rede é pedida só para aquela origem.
 $("#serverForm").onsubmit = async (e) => {

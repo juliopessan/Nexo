@@ -41,3 +41,4 @@ details{margin:8px 0}summary{cursor:pointer;color:var(--b);font-weight:600}
 .drafts{display:grid;gap:4px}.drafts button{text-align:left;background:var(--bg);color:var(--ink);border:1px solid var(--line);font-weight:400}
 .drafts button.on{border-color:var(--b)}
 .grid4{grid-template-columns:repeat(4,1fr)}.grid4 button{grid-column:1/-1}
+.prio{font-size:10px;font-weight:700;color:#7c2d12;background:#ffedd5;border-radius:999px;padding:2px 7px}

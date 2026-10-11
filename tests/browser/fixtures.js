@@ -93,3 +93,35 @@ export const inboxList = `<!doctype html><html><body><main>
   </ul>
   <form class="msg-form"><div class="msg-form__contenteditable" contenteditable="true"></div></form>
 </main></body></html>`;
+
+// Notificações no formato do texto real enviado pelo usuário (filtro "My posts")
+const POST = "Nobody notices the token bill going up.  They notice it after it already went up. What finally made your team start watching token spend closely, a bad bill or a good habit?";
+export const notifications = `<!doctype html><html><body><main>
+  <h1>Notifications</h1>
+  <section>
+    <article class="nt-card"><a href="/feed/update/urn:li:activity:7001/">
+      <span>Kosta Z. and 1 other reacted to your post.</span><p>${POST}</p><span>2 reactions • 1 comment</span></a><span>20h</span></article>
+    <article class="nt-card"><a href="/feed/update/urn:li:activity:7001/?commentUrn=urn%3Ali%3Acomment%3A%28activity%3A7001%2C7002%29&dashCommentUrn=x">
+      <span>Kosta Z. commented on your post.</span>
+      <p>I work solo, so there's no ticket pile and nobody downstream to flag it. Even working alone, this stuff piles up on you.</p>
+      <p>${POST}</p><span>2 reactions • 1 comment</span></a><span>20h</span></article>
+    <article class="nt-card"><a href="/feed/update/urn:li:activity:7003/">
+      <span>Xia Wu reacted to your post.</span><p>Nobody notices the token bill growing.</p><span>1 reaction</span></a><span>1w</span></article>
+  </section>
+</main></body></html>`;
+
+// Página do post aberta pelo link da notificação (comentário com data-id no formato novo)
+export const tokenPost = `<!doctype html><html><body><main>
+  <div data-urn="urn:li:activity:7001">
+    <a class="update-components-actor__meta-link" href="https://www.linkedin.com/in/julio-pessan/">
+      <span class="update-components-actor__title"><span aria-hidden="true">Julio Pessan</span></span></a>
+    <div class="update-components-text">${POST}</div>
+    <article class="comments-comment-entity" data-id="urn:li:comment:(urn:li:activity:7001,7002)">
+      <a href="https://www.linkedin.com/in/kosta-z/"><span class="comments-comment-meta__description-title">Kosta Z.</span></a>
+      <div class="comments-comment-item__main-content">I work solo, so there's no ticket pile and nobody downstream to flag it. Even working alone, this stuff piles up on you.</div>
+      <div><button aria-label="Like Kosta's comment" aria-pressed="false">Like</button>
+        <button aria-label="Reply to Kosta Z.'s comment" onclick="var b=this.closest('article').querySelector('.reply-box');b.hidden=false;var e=b.querySelector('[contenteditable]');if(!e.textContent)e.textContent='Kosta Z.';">Reply</button></div>
+      <div class="reply-box" hidden><div contenteditable="true" role="textbox"></div></div>
+    </article>
+  </div>
+</main></body></html>`;

@@ -17,13 +17,27 @@ let aiCalls = 0;
 await ctx.route("https://www.linkedin.com/**", (route) => {
   const u = new URL(route.request().url());
   const newUi = u.searchParams.has("newui");
-  const body = u.pathname.startsWith("/feed/update/urn:li:activity:99") ? fx.myPost
+  const body = u.pathname.startsWith("/notifications") ? fx.notifications
+    : u.pathname.startsWith("/feed/update/urn:li:activity:7001") ? fx.tokenPost
+    : u.pathname.startsWith("/feed/update/urn:li:activity:99") ? fx.myPost
     : u.pathname.startsWith("/messaging") && u.searchParams.has("list") ? fx.inboxList
     : u.pathname.startsWith("/messaging/thread/2-abc") ? fx.inboxList
     : u.pathname.startsWith("/in/") ? fx.profile
     : u.pathname.startsWith("/messaging") ? (newUi ? fx.messagingNewUi : fx.messaging)
     : (newUi ? fx.feedNewUi : fx.feed);
   route.fulfill({ contentType: "text/html; charset=utf-8", body });
+});
+let exaBody = null;
+await ctx.route("https://api.exa.ai/**", (route) => {
+  exaBody = JSON.parse(route.request().postData());
+  route.fulfill({ contentType: "application/json", body: JSON.stringify({
+    results: [{ title: "Maria Silva", url: "https://www.linkedin.com/in/maria-silva/" }],
+    output: {
+      content: { email: "", company_name: "Acme Vendas", company_domain: "https://www.acme.com.br/", industry: "Software B2B", employees: "51-200",
+        company_location: "São Paulo, BR", company_description: "Plataforma de automação comercial.", person_summary: "Lidera vendas B2B com foco em IA.", interests: ["IA em vendas", "SDR"] },
+      grounding: [{ field: "company_name", citations: [{ url: "https://www.acme.com.br/sobre", title: "Sobre" }], confidence: "high" }]
+    },
+    costDollars: { total: 0.012 } }) });
 });
 await ctx.route("https://api.anthropic.com/**", (route) => {
   aiCalls++;
@@ -135,7 +149,7 @@ await page.waitForTimeout(500);
 const reply = await page.textContent(`${ana} > .reply-box [contenteditable]`);
 check(reply === "Ana Costa Sugestão IA um", `comentário: resposta inserida após a menção ("${reply}")`);
 ({ queue = {} } = await storage("queue"));
-check(queue["c:urn:li:comment:(activity:99,1)"]?.status === "done", "fila: item marcado como feito após responder");
+check(queue["c:99:1"]?.status === "done", "fila: item marcado como feito após responder");
 await page.click(`${ana} .nexo-comment-bar >> text=👍`);
 check(await page.getAttribute(`${ana} button[aria-label^="Reagir"]`, "aria-pressed") === "true", "comentário: curtir aciona o botão nativo");
 
@@ -145,6 +159,24 @@ await page.waitForTimeout(800);
 ({ queue = {} } = await storage("queue"));
 const dms = Object.values(queue).filter((q) => q.kind === "dm");
 check(dms.length === 1 && dms[0].author.name === "Paula Nunes" && dms[0].text.includes("piloto"), `fila: só a DM não lida (${dms.map((q) => q.author.name)})`);
+
+// 6) Notificações (estrutura do texto real): comentário vira item da fila; reações não
+await page.goto("https://www.linkedin.com/notifications/?filter=my_posts_all");
+await page.waitForTimeout(900);
+({ queue = {} } = await storage("queue"));
+const nq = queue["c:7001:7002"];
+check(nq?.author?.name === "Kosta Z." && nq.text.startsWith("I work solo"), `notificações: comentário do Kosta na fila (${JSON.stringify(nq && { a: nq.author.name, t: nq.text.slice(0, 20) })})`);
+check(nq?.postText?.startsWith("Nobody notices"), "notificações: texto do post guardado como contexto");
+check(Object.values(queue).filter((q) => q.source === "notification").length === 1, "notificações: reações não viram itens");
+check((await page.$$("article.nt-card .nexo-post-bar")).length === 1, "notificações: botão de IA só no card de comentário");
+await page.click("article.nt-card >> text=✨ Responder com IA");
+await page.click(".nexo-menu >> text=Sugestão IA dois");
+await page.waitForURL(/activity:7001/, { timeout: 5000 }).catch(() => {});
+await page.waitForTimeout(1500);
+const kz = await page.textContent('article[data-id*="7002"] .reply-box [contenteditable]').catch(() => "");
+check(kz === "Kosta Z. Sugestão IA dois", `notificações → post: resposta inserida no comentário certo ("${kz}")`);
+({ queue = {} } = await storage("queue"));
+check(queue["c:7001:7002"]?.status === "done", "notificações: item marcado como feito");
 
 // 4) Painel lateral
 const panel = watch(await ctx.newPage(), "panel");
@@ -165,18 +197,34 @@ await panel.click("nav >> text=Pessoas");
 await panel.click('#list .card[data-id="maria-silva"]');
 const hist = await panel.textContent("#detail");
 check(hist.includes("Curtiu um post") && hist.includes("Comentário sugerido por IA inserido"), "painel: histórico registra curtida e comentário");
+// Enriquecimento com Exa a partir do detalhe do contato
+await sw.evaluate(() => chrome.storage.local.get("settings").then(({ settings }) => chrome.storage.local.set({ settings: { ...settings, exaKey: "exa-test" } })));
+await panel.click("#enrich");
+await panel.waitForTimeout(800);
+const det = await panel.textContent("#detail");
+check(det.includes("Lidera vendas B2B") && det.includes("acme.com.br") && det.includes("IA em vendas"), "Exa: resumo, domínio e temas aparecem no contato");
+check(exaBody?.outputSchema && exaBody.category === "people" && /maria-silva/.test(exaBody.query) && /Nunca deduza/.test(exaBody.systemPrompt), "Exa: request com outputSchema, categoria people e regra contra e-mail deduzido");
+({ contacts = {} } = await storage("contacts"));
+check(!contacts["maria-silva"].email, "Exa: e-mail vazio não é gravado");
 await panel.click("#back");
+
+// Prioridade: seus posts e DMs no topo, com selo
+await sw.evaluate(() => chrome.storage.local.get("queue").then(({ queue }) => {
+  queue["c:outro"] = { id: "c:outro", kind: "comment", status: "open", priority: 2, seenAt: Date.now() + 1e6, author: { name: "Zé Menção" }, text: "Te mencionei", url: "https://www.linkedin.com/feed/update/urn:li:activity:5/" };
+  return chrome.storage.local.set({ queue }); }));
 
 // Caixa de entrada: reabre o comentário (para testar o fluxo do painel), gera rascunhos e "Abrir e inserir"
 await sw.evaluate(() => chrome.storage.local.get("queue").then(({ queue }) => {
-  queue["c:urn:li:comment:(activity:99,1)"].status = "open"; return chrome.storage.local.set({ queue }); }));
+  queue["c:99:1"].status = "open"; return chrome.storage.local.set({ queue }); }));
 await panel.click("nav >> text=Caixa de entrada");
 await panel.waitForTimeout(300);
 const qNames = await panel.$$eval(".qi header b", (els) => els.map((e) => e.textContent));
 check(qNames.includes("Ana Costa") && qNames.includes("Paula Nunes"), `inbox: lista comentário e DM (${qNames})`);
+check(qNames.at(-1) === "Zé Menção", `prioridade: item de outro post fica por último mesmo sendo o mais recente (${qNames})`);
+check((await panel.$$(".qi .prio")).length >= 2, "prioridade: selos 'Seu post' / 'Sua DM' aparecem");
 const goalsTxt = await panel.textContent("#goals");
 check(/Respostas/.test(goalsTxt) && /DMs/.test(goalsTxt), `inbox: metas do dia visíveis (${goalsTxt.replace(/\s+/g, " ").trim()})`);
-const anaItem = '.qi[data-q="c:urn:li:comment:(activity:99,1)"]';
+const anaItem = '.qi[data-q="c:99:1"]';
 await panel.click(`${anaItem} >> text=✨ Gerar respostas`);
 await panel.waitForSelector(`${anaItem} .drafts button`, { timeout: 5000 }).catch(() => {});
 await panel.click(`${anaItem} .drafts >> text=Sugestão IA dois`);
@@ -190,7 +238,7 @@ const inserted = await page.textContent(`${ana} > .reply-box [contenteditable]`)
 check(inserted === "Ana Costa Funciona sim, Ana! Te mostro numa call?", `abrir e inserir: rascunho editado chega no comentário ("${inserted}")`);
 const { stats = {} } = await storage("stats");
 const st = Object.values(stats)[0] || {};
-check(st.reply === 2 && st.like >= 3 && st.comment >= 2 && st.dm >= 2, `metas: contagem do dia (${JSON.stringify(st)})`);
+check(st.reply === 3 && st.like >= 3 && st.comment >= 2 && st.dm >= 2, `metas: contagem do dia (${JSON.stringify(st)})`);
 
 await panel.click("nav >> text=Config");
 check(await panel.isVisible("#serverForm"), "painel: aba Config abre");

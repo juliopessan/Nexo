@@ -17,7 +17,7 @@ O Nexo é o seu assistente de engajamento no LinkedIn.
 • Notas, tags, histórico de interações e lembretes de follow-up
 • Templates de DM e comentário com variáveis ({firstName}, {company}…)
 • Sugestões de comentários e respostas com IA (Claude), no seu tom de voz
-• Enriquecimento de e-mail e dados da empresa (Hunter.io, opcional)
+• Enriquecimento com Exa: resumo da pessoa, temas e dados da empresa, com fontes (opcional)
 • Equipe: sincronize o funil com seu time num servidor próprio
 • Exportação CSV
 
@@ -40,7 +40,7 @@ Ajudar o usuário a engajar no LinkedIn (responder comentários e mensagens, com
 | `notifications` | Avisar sobre follow-ups do dia. |
 | `https://www.linkedin.com/*` | Adicionar botões (salvar contato, templates, IA) às páginas de perfil, feed e mensagens, e ler os dados do perfil que o usuário decide salvar. |
 | `https://api.anthropic.com/*` | Gerar sugestões de texto com IA quando o usuário clica em um botão de IA, com a chave do próprio usuário. |
-| `https://api.hunter.io/*` | Buscar e-mail e dados da empresa quando o usuário clica em *Enriquecer*, com a chave do próprio usuário. |
+| `https://api.exa.ai/*` | Pesquisar informações públicas do contato e da empresa quando o usuário clica em *Enriquecer*, com a chave do próprio usuário. |
 | `optional_host_permissions` (`https://*/*`) | Pedida em tempo de execução **só para o endereço do servidor da equipe** que o usuário informar. O endereço muda de empresa para empresa, por isso não pode ser fixo. |
 | Código remoto | Não usa. Todo o código está no pacote. |
 

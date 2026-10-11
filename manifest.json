@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Nexo — Assistente de engajamento no LinkedIn",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Responda comentários e DMs com IA, curta e comente com um clique e bata suas metas diárias de engajamento. Você sempre aprova antes de enviar.",
   "permissions": [
     "storage",
@@ -12,7 +12,7 @@
   "host_permissions": [
     "https://www.linkedin.com/*",
     "https://api.anthropic.com/*",
-    "https://api.hunter.io/*"
+    "https://api.exa.ai/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -21,10 +21,16 @@
     "default_path": "sidepanel.html"
   },
   "action": {
-    "default_title": "Abrir Nexo"
+    "default_title": "Abrir Nexo",
+    "default_icon": {
+      "16": "icons/16.png",
+      "32": "icons/32.png",
+      "48": "icons/48.png"
+    }
   },
   "icons": {
     "16": "icons/16.png",
+    "32": "icons/32.png",
     "48": "icons/48.png",
     "128": "icons/128.png"
   },

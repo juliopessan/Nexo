@@ -68,10 +68,14 @@ const NexoStore = (() => {
     for (const it of items) {
       const cur = queue[it.id];
       if (cur) {
-        if (cur.status === "open" && cur.text !== it.text) { queue[it.id] = { ...cur, ...it, status: "open" }; changed = true; }
+        const priority = Math.min(cur.priority || 2, it.priority || 2);
+        if (cur.status === "open" && (cur.text !== it.text || priority !== cur.priority)) {
+          queue[it.id] = { ...cur, ...it, postText: it.postText || cur.postText, priority, status: "open" };
+          changed = true;
+        }
         continue;
       }
-      queue[it.id] = { ...it, status: "open", seenAt: Date.now() };
+      queue[it.id] = { priority: 2, ...it, status: "open", seenAt: Date.now() };
       added++; changed = true;
     }
     if (!changed) return 0; // a página é varrida a cada mudança de DOM: não regrava à toa

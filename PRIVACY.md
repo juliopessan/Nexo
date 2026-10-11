@@ -9,14 +9,14 @@ O Nexo é uma extensão do Chrome que ajuda você a organizar seus relacionament
 |---|---|---|
 | Nome, cargo, foto, local e URL de perfis que **você** salva | Páginas do LinkedIn que você abre | Seu navegador (`chrome.storage.local`) |
 | Notas, tags, etapa do funil, follow-ups e histórico de interações | Digitados por você | Seu navegador |
-| E-mail e sites do contato | Diálogo "Informações de contato" do LinkedIn (quando você o abre) ou Hunter.io (quando você clica em *Enriquecer*) | Seu navegador |
+| E-mail, sites, resumo profissional e dados da empresa do contato | Diálogo "Informações de contato" do LinkedIn (quando você o abre) ou Exa (quando você clica em *Enriquecer*) | Seu navegador |
 | Texto de posts e conversas | Página aberta, **somente quando você clica** em um botão de IA | Enviado à Anthropic para gerar a sugestão; não é armazenado pelo Nexo |
-| Chaves de API (Anthropic, Hunter.io) | Digitadas por você | Seu navegador |
+| Chaves de API (Anthropic, Exa) | Digitadas por você | Seu navegador |
 
 ## Compartilhamento
 - **Servidor da sua equipe (opcional):** se você configurar um servidor Nexo, os contatos e templates são sincronizados com **esse servidor**, controlado por você ou pela sua empresa. O desenvolvedor do Nexo não tem acesso a ele.
 - **Anthropic (opcional):** recebe o texto necessário para gerar sugestões (post ou conversa, mais nome, cargo, empresa, etapa e notas do contato), usando a **sua** chave. O e-mail do contato não é enviado. Política da Anthropic: https://www.anthropic.com/legal/privacy
-- **Hunter.io (opcional):** recebe nome e empresa do contato para buscar o e-mail profissional, usando a **sua** chave. Política do Hunter: https://hunter.io/privacy-policy
+- **Exa (opcional):** recebe nome, cargo, empresa e URL do LinkedIn do contato para pesquisar informações públicas na web, usando a **sua** chave. Política da Exa: https://exa.ai/privacy-policy
 - O Nexo **não** vende dados, não usa dados para publicidade e não envia nada para servidores do desenvolvedor.
 
 ## Automação

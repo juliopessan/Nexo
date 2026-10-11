@@ -43,8 +43,9 @@ O backend roda na **sua VPS**: PostgreSQL + API em Node (`server/`) + Caddy com 
 
 ### 🔎 Enriquecimento
 - **Do próprio LinkedIn**: ao abrir *Informações de contato* num perfil salvo, o Nexo guarda o e-mail e os sites que aparecem ali (fonte: `linkedin`).
-- **Hunter.io** (com a sua chave): o botão *🔎 Enriquecer* busca o e-mail profissional (com nota de confiança) e os dados da empresa: domínio, setor, porte e local.
-- Cada dado guarda a sua fonte. Um e-mail que veio do LinkedIn nunca é sobrescrito por um palpite do Hunter.
+- **Exa** (com a sua chave, exa.ai): o botão *🔎 Enriquecer* pesquisa a web e devolve um resumo profissional da pessoa, os temas sobre os quais ela fala e os dados da empresa (domínio, setor, porte, local, descrição), com **fontes e nível de confiança**. A IA usa o resumo e os temas para personalizar comentários e respostas.
+- E-mail só aparece se estiver **publicado** para aquela pessoa. A Exa recebe instrução explícita para nunca deduzir um e-mail a partir de um padrão.
+- Cada dado guarda a sua fonte. Um e-mail que veio do LinkedIn nunca é sobrescrito pela Exa.
 
 ## Princípio de design: humano no controle
 O Nexo **nunca envia nada sozinho**. Ele preenche o texto e você revisa e envia. Ações em massa automáticas violam os Termos do LinkedIn e podem levar ao bloqueio da conta.

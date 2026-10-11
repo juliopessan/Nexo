@@ -117,7 +117,7 @@
         await NexoStore.upsertContact(p);
         try {
           const r = await ask({ type: "enrich", id: p.id });
-          toast(r.found ? (r.contact.email ? `E-mail: ${r.contact.email}` : "Empresa enriquecida ✔") : "Nada novo encontrado");
+          toast(r.found ? (r.contact.email ? `E-mail público: ${r.contact.email}` : "Perfil e empresa enriquecidos ✔") : "A Exa não encontrou dados confiáveis");
         } catch (e) { toast(e.message); }
       }),
       chip("Abrir painel", () => chrome.runtime.sendMessage({ type: "open-panel" }))
@@ -201,6 +201,8 @@
   // 2b) Comentários: responder com IA, curtir, e alimentar a fila de engajamento
   const COMMENT = "article.comments-comment-entity, article.comments-comment-item, [data-id^='urn:li:comment']";
   const ownLevel = (root, sel) => [...root.querySelectorAll(sel)].filter((x) => x.closest(COMMENT) === root);
+  // "urn:li:comment:(activity:7380,7381)" e "urn:li:comment:(urn:li:activity:7380,7381)" → "7380:7381"
+  const commentKey = (s) => { const m = /activity:(\d+)\s*,\s*(\d+)/.exec(decodeURIComponent(s || "")); return m ? `${m[1]}:${m[2]}` : s; };
   const hashId = (s) => { let h = 0; for (const ch of s) h = (h * 31 + ch.charCodeAt(0)) | 0; return `h${(h >>> 0).toString(36)}`; };
 
   function commentInfo(el) {
@@ -210,7 +212,7 @@
       || ownLevel(el, 'a[href*="/in/"]').map((x) => x.innerText.trim()).find(Boolean) || "").split("\n")[0].trim();
     const body = ownLevel(el, ".comments-comment-item__main-content, .comments-comment-entity__content, .update-components-text, .break-words")[0];
     const txt = (body?.innerText || "").trim().slice(0, 2000);
-    const id = el.getAttribute("data-id") || hashId(`${authorId}|${txt}`);
+    const id = el.getAttribute("data-id") ? commentKey(el.getAttribute("data-id")) : hashId(`${authorId}|${txt}`);
     return { id, author: { id: authorId, name }, text: txt };
   }
 
@@ -272,11 +274,65 @@
         if (!info.author.id || info.author.id === me.id || !info.text) return;
         const repliedByMe = [...c.querySelectorAll(COMMENT)].some((r) => r !== c && commentInfo(r).author.id === me.id);
         if (repliedByMe) return answered.push(`c:${info.id}`);
-        items.push({ id: `c:${info.id}`, kind: "comment", url: postUrlOf(post), targetId: info.id, author: info.author, text: info.text, postText });
+        items.push({ id: `c:${info.id}`, kind: "comment", url: postUrlOf(post), targetId: info.id, author: info.author, text: info.text, postText, priority: 1 });
       });
     });
     if (items.length) await NexoStore.enqueue(items);
     for (const id of answered) await NexoStore.setQueueStatus(id, "done");
+  }
+
+  // Notificações: "X commented on your post", "X replied to your comment", "X mentioned you…"
+  const NOTIF_RE = /^(.+?)\s+(commented on|replied to|mentioned you|comentou (?:no|na|em)|respondeu (?:ao|a)|mencionou você)/i;
+  function notificationCards() {
+    if (!location.pathname.startsWith("/notifications")) return [];
+    const seen = new Set();
+    return [...document.querySelectorAll('a[href*="/feed/update/"]')].map((a) => {
+      // card da notificação: o contêiner de item mais próximo (classes mudam; tags e data-* mudam menos)
+      const card = a.closest("article, li, [data-urn], .nt-card, [data-finite-scroll-hotkey-item]") || a.parentElement;
+      if (seen.has(card)) return null;
+      seen.add(card);
+      const lines = card.innerText.split("\n").map((l) => l.trim()).filter(Boolean);
+      const hi = lines.findIndex((l) => NOTIF_RE.test(l));
+      if (hi < 0) return null;
+      const m = NOTIF_RE.exec(lines[hi]);
+      const author = m[1].replace(/\s+and \d+ others?$|\s+e (?:mais )?\d+ (?:outras? pessoas?|outros?)$/i, "").trim();
+      const href = new URL(a.getAttribute("href"), location.origin);
+      const cUrn = href.searchParams.get("commentUrn") || href.searchParams.get("replyUrn") || "";
+      const isMention = /mention|mencion/i.test(m[2]);
+      // "commented on your post" / "comentou na sua publicação" = SEU post → prioridade máxima
+      const onMyPost = /your post|sua publica|seu post/i.test(lines[hi]);
+      // linhas depois do título: [comentário, texto do post, "N reactions • N comments", "20h"]
+      const rest = lines.slice(hi + 1).filter((l) => !/^\d+\s*(reactions?|reações?|comments?|comentários?)|^\d+[smhdw]$|^\d+\s*(min|h|d|sem|w)/i.test(l));
+      const commentText = isMention ? (rest[0] || "") : (rest.length > 1 ? rest[0] : "");
+      const postText = isMention ? "" : (rest.length > 1 ? rest.slice(1).join(" ") : rest[0] || "");
+      return {
+        card, cUrn,
+        item: {
+          id: cUrn ? `c:${commentKey(cUrn)}` : `n:${hashId(`${author}|${commentText}|${href.pathname}`)}`,
+          kind: "comment", url: href.origin + href.pathname + (cUrn ? `?commentUrn=${encodeURIComponent(cUrn)}` : ""),
+          targetId: cUrn ? commentKey(cUrn) : null, author: { name: author }, text: commentText.slice(0, 2000), postText: postText.slice(0, 3000),
+          source: "notification", priority: onMyPost ? 1 : 2
+        }
+      };
+    }).filter((x) => x && x.item.text);
+  }
+
+  async function scanNotifications() {
+    const found = notificationCards();
+    if (!found.length) return;
+    await NexoStore.enqueue(found.map((f) => f.item));
+    for (const { card, item } of found) {
+      if (card.dataset.nexo) continue;
+      card.dataset.nexo = "1";
+      const bar = Object.assign(document.createElement("div"), { className: "nexo-post-bar" });
+      bar.append(chip("✨ Responder com IA", (btn) => pickAI(btn, "comment-reply",
+        { postText: item.postText, comment: { author: item.author.name, text: item.text }, contact: { name: item.author.name } },
+        async (value) => {
+          await NexoStore.setPending({ url: item.url, kind: "comment", targetId: item.targetId, text: value, author: item.author.name, text0: item.text });
+          location.href = item.url;
+        })));
+      card.append(bar);
+    }
   }
 
   // DMs não lidas na lista de conversas entram na fila
@@ -294,7 +350,7 @@
       const lines = li.innerText.split("\n").map((l) => l.trim()).filter(Boolean);
       const name = text(".msg-conversation-listitem__participant-names, .msg-conversation-card__participant-names", li) || lines[0] || "";
       const snippet = text(".msg-conversation-card__message-snippet, .msg-conversation-card__message-snippet-body", li) || lines.at(-1) || "";
-      items.push({ id: `dm:${path}`, kind: "dm", url: `https://www.linkedin.com${path}/`, author: { name }, text: snippet.slice(0, 500) });
+      items.push({ id: `dm:${path}`, kind: "dm", url: `https://www.linkedin.com${path}/`, author: { name }, text: snippet.slice(0, 500), priority: 1 });
     });
     if (items.length) await NexoStore.enqueue(items);
   }
@@ -304,11 +360,15 @@
   async function handlePending() {
     if (pendingBusy) return;
     const p = await NexoStore.takePending();
-    if (!p || !location.href.startsWith(p.url.replace(/\/$/, ""))) return;
+    const samePath = (u) => { try { return new URL(u).pathname.replace(/\/$/, "") === location.pathname.replace(/\/$/, ""); } catch { return false; } };
+    if (!p || !samePath(p.url)) return;
     pendingBusy = true;
     try {
       if (p.kind === "comment") {
-        const el = [...document.querySelectorAll(COMMENT)].find((c) => commentInfo(c).id === p.targetId);
+        const all = [...document.querySelectorAll(COMMENT)];
+        const norm = (t) => (t || "").replace(/\s+/g, " ").trim().slice(0, 60);
+        const el = all.find((c) => commentInfo(c).id === p.targetId)
+          || all.find((c) => { const i = commentInfo(c); return p.author && i.author.name === p.author && (!p.text0 || norm(i.text) === norm(p.text0)); });
         if (!el) return; // ainda não carregou: tenta no próximo scan
         el.scrollIntoView({ block: "center" });
         if (await replyToComment(el, p.text)) { await NexoStore.clearPending(); toast("Rascunho inserido: revise e envie ✔"); }
@@ -377,7 +437,7 @@
   }
 
   // Só o que a IA precisa saber do contato (nada de e-mail ou histórico completo)
-  const slim = (c) => c && { name: c.name, headline: c.headline, company: c.company, stage: c.stage, notes: (c.notes || "").slice(0, 800) };
+  const slim = (c) => c && { name: c.name, headline: c.headline, company: c.company, stage: c.stage, notes: (c.notes || "").slice(0, 800), about: c.about, interests: c.interests };
 
   // Diálogo "Informações de contato" aberto pelo usuário: captura e-mail/sites que o LinkedIn já exibe
   async function scanContactInfo() {
@@ -424,6 +484,7 @@
     scanContactInfo();
     scanCommentsQueue();
     scanInboxQueue();
+    scanNotifications();
     handlePending();
   };
   new MutationObserver(() => { if (!pending) { pending = true; setTimeout(scan, 400); } })
