@@ -117,7 +117,7 @@ done
 CRON="0 3 * * * $DIR/deploy/backup.sh >/dev/null 2>&1"
 ( crontab -l 2>/dev/null | grep -v "deploy/backup.sh"; echo "$CRON" ) | crontab -
 
-if [ -z "$PROFILE" ]; then
+if [ -z "$PROFILE" ] && [ ! -f docker-compose.traefik.yml ]; then
   echo
   echo "API rodando em http://127.0.0.1:8787 (só local). Falta o HTTPS no seu servidor web."
   case "${OWNER:-}" in
