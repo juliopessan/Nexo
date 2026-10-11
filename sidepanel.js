@@ -2,7 +2,9 @@ const S = NexoStore;
 const $ = (s) => document.querySelector(s);
 const esc = (s = "") => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const today = () => new Date().toISOString().slice(0, 10);
-let tab = "contacts";
+let tab = "inbox";
+let qFilter = "";
+const drafts = {}; // rascunhos gerados por item da fila (memória do painel)
 
 const ask = (msg) => chrome.runtime.sendMessage(msg).then((r) => (r?.ok ? r.data : Promise.reject(new Error(r?.error || "Falha"))));
 const avatar = (c) => c.avatar ? `<img src="${esc(c.avatar)}" alt="">` : `<span class="av">${esc((c.name || "?")[0])}</span>`;
@@ -42,9 +44,10 @@ async function render() {
       };
     });
   }
-  if (tab === "today") {
+  if (tab === "inbox") {
+    await renderInbox();
     const due = all.filter((c) => c.followUp && c.followUp <= today()).sort((a, b) => a.followUp.localeCompare(b.followUp));
-    $("#dueList").innerHTML = due.map(card).join("") || `<p class="empty">Nada pendente. Caixa zerada 🎉</p>`;
+    $("#dueList").innerHTML = due.map(card).join("") || `<p class="empty">Nenhum follow-up para hoje.</p>`;
   }
   if (tab === "templates") {
     $("#tplList").innerHTML = templates.map((t) => `<li><b>${esc(t.name)}</b> <span class="pill">${t.kind === "dm" ? "DM" : "Comentário"}</span><p>${esc(t.body)}</p><button class="ghost" data-del="${esc(t.id)}">Remover</button></li>`).join("");
@@ -55,6 +58,75 @@ async function render() {
     el.onclick = () => openDetail(el.dataset.id);
     el.ondragstart = (e) => e.dataTransfer.setData("text/plain", el.dataset.id);
   });
+}
+
+const GOAL_LABELS = { like: "Curtidas", comment: "Comentários", reply: "Respostas", dm: "DMs" };
+async function renderInbox() {
+  const st = await S.getSettings();
+  const goals = { ...S.DEFAULT_GOALS, ...st.goals };
+  const { today: t } = await S.getStats();
+  $("#goals").innerHTML = Object.keys(GOAL_LABELS).map((k) => {
+    const pct = goals[k] ? Math.min(100, Math.round((t[k] / goals[k]) * 100)) : 100;
+    return `<div class="goal ${pct >= 100 ? "done" : ""}" title="Interações assistidas pelo Nexo hoje"><b>${t[k]}<small>/${goals[k]}</small></b><small>${GOAL_LABELS[k]}</small><div class="bar"><i style="width:${pct}%"></i></div></div>`;
+  }).join("");
+
+  const queue = Object.values(await S.getQueue()).filter((q) => q.status === "open" && (!qFilter || q.kind === qFilter))
+    .sort((a, b) => b.seenAt - a.seenAt);
+  if (!queue.length) {
+    $("#queue").innerHTML = `<p class="empty">${!st.me ? "Abra o <b>seu</b> perfil no LinkedIn e clique em <b>⭐ Este sou eu</b> para o Nexo monitorar comentários nos seus posts." :
+      "Nada pendente. Abra seus posts, notificações ou mensagens: comentários sem resposta e DMs não lidas aparecem aqui."}</p>`;
+    return;
+  }
+  $("#queue").innerHTML = queue.map((q) => {
+    const d = drafts[q.id];
+    return `<li class="qi" data-q="${esc(q.id)}">
+      <header><span>${q.kind === "dm" ? "✉️" : "💬"}</span><b>${esc(q.author?.name || "?")}</b><small>${new Date(q.seenAt).toLocaleDateString("pt-BR")}</small></header>
+      <blockquote>${esc(q.text)}</blockquote>
+      ${d?.list ? `<div class="drafts">${d.list.map((x, i) => `<button data-pick="${i}" class="${d.pick === i ? "on" : ""}">${esc(x)}</button>`).join("")}</div>
+        <textarea data-edit>${esc(d.text || "")}</textarea>` : ""}
+      <div class="row">
+        <button data-act="gen">${d?.loading ? "Gerando…" : d?.list ? "✨ Gerar de novo" : "✨ Gerar respostas"}</button>
+        <button data-act="open" class="ghost">${d?.text ? "Abrir e inserir" : "Abrir"}</button>
+        <button data-act="done" class="ghost">✔ Feito</button>
+        <button data-act="skip" class="ghost">Ignorar</button>
+      </div></li>`;
+  }).join("");
+  document.querySelectorAll(".qi").forEach((li) => {
+    const q = queue.find((x) => x.id === li.dataset.q);
+    li.querySelector('[data-act="gen"]').onclick = () => generateFor(q);
+    li.querySelector('[data-act="open"]').onclick = () => openItem(q);
+    li.querySelector('[data-act="done"]').onclick = () => S.setQueueStatus(q.id, "done").then(render);
+    li.querySelector('[data-act="skip"]').onclick = () => S.setQueueStatus(q.id, "dismissed").then(render);
+    li.querySelectorAll("[data-pick]").forEach((b) => b.onclick = () => { drafts[q.id].pick = +b.dataset.pick; drafts[q.id].text = drafts[q.id].list[+b.dataset.pick]; render(); });
+    const ta = li.querySelector("[data-edit]");
+    if (ta) ta.oninput = () => (drafts[q.id].text = ta.value);
+  });
+}
+
+async function generateFor(q) {
+  drafts[q.id] = { ...drafts[q.id], loading: true };
+  render();
+  try {
+    const { contacts } = await S.get();
+    const c = contacts[q.author?.id];
+    const contact = c ? { name: c.name, headline: c.headline, company: c.company, stage: c.stage, notes: c.notes } : { name: q.author?.name };
+    const list = q.kind === "comment"
+      ? await ask({ type: "ai-suggest", kind: "comment-reply", context: { postText: q.postText, comment: { author: q.author?.name, text: q.text }, contact } })
+      : await ask({ type: "ai-suggest", kind: "reply", context: { thread: [`${q.author?.name}: ${q.text}`], contact } });
+    drafts[q.id] = { list, pick: 0, text: list[0] };
+  } catch (e) {
+    drafts[q.id] = {};
+    alert(e.message);
+  }
+  render();
+}
+
+async function openItem(q) {
+  const text = drafts[q.id]?.text?.trim();
+  if (text) await S.setPending({ url: q.url, kind: q.kind, targetId: q.targetId, text });
+  const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (active?.url?.startsWith("https://www.linkedin.com/")) await chrome.tabs.update(active.id, { url: q.url });
+  else await chrome.tabs.create({ url: q.url });
 }
 
 async function openDetail(id) {
@@ -110,8 +182,12 @@ async function openDetail(id) {
 
 async function renderConfig() {
   const st = await S.getSettings();
+  const goals = { ...S.DEFAULT_GOALS, ...st.goals };
+  for (const el of $("#goalsForm").elements) if (el.name && document.activeElement !== el) el.value = goals[el.name];
+  $("#meInfo").innerHTML = st.me ? `Seu perfil: <b>${esc(st.me.name)}</b>. Comentários nos seus posts entram na Caixa de entrada.`
+    : "Abra seu perfil no LinkedIn e clique em ⭐ Este sou eu para ativar o monitoramento de comentários.";
   for (const f of ["#aiForm", "#serverForm", "#hunterForm"]) {
-    for (const el of $(f).elements) if (el.name && document.activeElement !== el) el.value = st[el.name] || "";
+    for (const el of $(f).elements) if (el.name && document.activeElement !== el) el.value = st[el.name] || (el.tagName === "SELECT" ? el.options[0].value : "");
   }
   const box = $("#teamBox");
   if (!st.serverUrl) { box.innerHTML = `<p class="hint">Informe o endereço do seu servidor Nexo para usar em equipe.</p>`; return; }
@@ -188,6 +264,19 @@ async function renderSyncStatus() {
     : `☁️ ${st.teamName} · sincronizado ${st.lastSyncAt ? new Date(st.lastSyncAt).toLocaleTimeString("pt-BR") : "—"}`;
 }
 
+document.querySelectorAll("#qfilter button").forEach((b) => b.onclick = () => {
+  qFilter = b.dataset.f;
+  document.querySelectorAll("#qfilter button").forEach((x) => x.classList.toggle("on", x === b));
+  render();
+});
+$("#goalsForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const goals = Object.fromEntries([...new FormData(e.target)].map(([k, v]) => [k, Math.max(0, +v || 0)]));
+  await S.saveSettings({ goals });
+  e.submitter.textContent = "Salvo ✔";
+  setTimeout(render, 900);
+};
+
 $("#q").oninput = render;
 $("#stageFilter").onchange = render;
 $("#tplForm").onsubmit = async (e) => {
@@ -207,6 +296,8 @@ $("#export").onclick = async () => {
 chrome.storage.onChanged.addListener((ch) => {
   if (ch.settings) renderSyncStatus();
   if (!$("#detail").hidden || (tab === "config" && !ch.settings)) return;
+  // Na caixa de entrada, não redesenha enquanto o usuário edita um rascunho
+  if (tab === "inbox" && document.activeElement?.matches?.("[data-edit]")) return;
   render();
 });
 renderSyncStatus();

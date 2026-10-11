@@ -1,14 +1,17 @@
 # Chrome Web Store — material de publicação
 
 ## Nome
-Nexo — CRM para LinkedIn
+Nexo — Assistente de engajamento no LinkedIn
 
 ## Resumo (até 132 caracteres)
-Salve contatos do LinkedIn, organize em funil, use IA para comentar e responder DMs e nunca perca um follow-up.
+Responda comentários e DMs com IA, curta e comente com um clique e bata suas metas diárias de engajamento.
 
 ## Descrição
-O Nexo transforma o LinkedIn no seu CRM, sem planilhas e sem copiar e colar.
+O Nexo é o seu assistente de engajamento no LinkedIn.
 
+• Caixa de entrada: comentários sem resposta nos seus posts e DMs não lidas num só lugar
+• Respostas com IA (Claude) no seu tom de voz. Você escolhe, edita e envia
+• Curtir e comentar com um clique, com metas diárias de engajamento
 • Salve perfis em 1 clique, direto da página do perfil ou de um post
 • Pipeline visual (Novo → Contatado → Conversando → Reunião → Cliente)
 • Notas, tags, histórico de interações e lembretes de follow-up
@@ -26,7 +29,7 @@ Privacidade: os dados ficam no seu navegador ou no servidor da sua empresa. Nada
 Produtividade (Productivity)
 
 ## Finalidade única (single purpose)
-Gerenciar relacionamentos profissionais do LinkedIn (CRM pessoal e de equipe) dentro do próprio LinkedIn.
+Ajudar o usuário a engajar no LinkedIn (responder comentários e mensagens, comentar e curtir) com rascunhos de IA que ele revisa e envia, e organizar os relacionamentos que surgem desse engajamento.
 
 ## Justificativa das permissões
 | Permissão | Justificativa |

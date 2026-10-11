@@ -1,16 +1,21 @@
 <!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><title>Nexo</title><link rel="stylesheet" href="sidepanel.css"></head>
 <body>
-<header><h1>Nexo<span>CRM para LinkedIn</span></h1>
-<nav><button data-tab="contacts" class="on">Contatos</button><button data-tab="pipeline">Pipeline</button><button data-tab="today">Hoje</button><button data-tab="templates">Templates</button><button data-tab="config">Config</button></nav><div id="syncStatus"></div></header>
+<header><h1>Nexo<span>Assistente de engajamento no LinkedIn</span></h1>
+<nav><button data-tab="inbox" class="on">Caixa de entrada</button><button data-tab="contacts">Pessoas</button><button data-tab="pipeline">Pipeline</button><button data-tab="templates">Templates</button><button data-tab="config">Config</button></nav><div id="syncStatus"></div></header>
 <main>
-  <section id="contacts">
+  <section id="inbox">
+    <div id="goals" class="goals"></div>
+    <div class="row seg" id="qfilter"><button data-f="" class="on">Tudo</button><button data-f="comment">Comentários</button><button data-f="dm">DMs</button></div>
+    <ul id="queue" class="cards"></ul>
+    <h2>Follow-ups de hoje</h2><ul id="dueList" class="cards"></ul>
+  </section>
+  <section id="contacts" hidden>
     <div class="row"><input id="q" placeholder="Buscar nome, cargo, tag…"><select id="stageFilter"></select></div>
     <ul id="list" class="cards"></ul>
     <button id="export" class="ghost">Exportar CSV</button>
   </section>
   <section id="pipeline" hidden><div id="board"></div></section>
-  <section id="today" hidden><h2>Follow-ups pendentes</h2><ul id="dueList" class="cards"></ul></section>
   <section id="templates" hidden>
     <ul id="tplList"></ul>
     <form id="tplForm"><select name="kind"><option value="dm">DM</option><option value="comment">Comentário</option></select>
@@ -23,9 +28,21 @@
     <form id="aiForm">
       <label>Chave da API Anthropic<input name="anthropicKey" type="password" placeholder="sk-ant-..." autocomplete="off"></label>
       <label>Modelo<input name="model" placeholder="claude-opus-5-5"></label>
+      <label>Tom de voz<select name="tone">
+        <option value="profissional">Profissional</option><option value="amigavel">Amigável</option>
+        <option value="direto">Direto</option><option value="provocativo">Provocativo</option><option value="divertido">Divertido</option></select></label>
       <label>Sobre você (a IA escreve na sua voz)<textarea name="aboutMe" rows="3" placeholder="Ex.: Fundador da Acme, vendo automação de RH para PMEs. Tom direto e bem-humorado."></textarea></label>
       <button>Salvar IA</button>
     </form>
+    <h2>🎯 Metas diárias</h2>
+    <form id="goalsForm" class="grid4">
+      <label>Curtidas<input name="like" type="number" min="0" max="200"></label>
+      <label>Comentários<input name="comment" type="number" min="0" max="200"></label>
+      <label>Respostas<input name="reply" type="number" min="0" max="200"></label>
+      <label>DMs<input name="dm" type="number" min="0" max="200"></label>
+      <button>Salvar metas</button>
+    </form>
+    <p class="hint" id="meInfo"></p>
     <h2>☁️ Equipe e sincronização</h2>
     <form id="serverForm">
       <label>Endereço do servidor Nexo<input name="serverUrl" type="url" placeholder="https://nexo.suaempresa.com.br" required></label>

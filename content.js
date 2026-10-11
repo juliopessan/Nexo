@@ -10,10 +10,21 @@
     setTimeout(() => t.remove(), 2400);
   }
 
-  function insertInto(editor, value) {
+  function insertInto(editor, value, { append = false } = {}) {
     editor.focus();
-    document.execCommand("selectAll", false, null);
-    document.execCommand("insertText", false, value);
+    if (append) {
+      const range = document.createRange();
+      range.selectNodeContents(editor);
+      range.collapse(false);
+      const sel = getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      const existing = editor.innerText.trim();
+      document.execCommand("insertText", false, existing ? ` ${value}` : value);
+    } else {
+      document.execCommand("selectAll", false, null);
+      document.execCommand("insertText", false, value);
+    }
   }
 
   // Menu flutuante genérico: items = [{ label, title, value }]
@@ -97,6 +108,11 @@
         label.textContent = `No Nexo · ${c.stage}`;
         toast(`${c.name} salvo no Nexo ✔`);
       }),
+      ...((await NexoStore.getSettings()).me?.id === p.id ? [] : [chip("⭐ Este sou eu", async (b) => {
+        await NexoStore.saveSettings({ me: { id: p.id, name: p.name, headline: p.headline } });
+        b.remove();
+        toast("Perfil definido: o Nexo vai monitorar comentários nos seus posts ✔");
+      })]),
       chip("🔎 Enriquecer", async () => {
         await NexoStore.upsertContact(p);
         try {
@@ -148,7 +164,7 @@
       chip("👍 Curtir", async () => {
         const like = post.querySelector(SEL.like);
         if (!like) return toast("Botão de curtir não encontrado");
-        if (like.getAttribute("aria-pressed") !== "true") like.click();
+        if (like.getAttribute("aria-pressed") !== "true") { like.click(); NexoStore.bumpStat("like"); }
         const a = postAuthor(post);
         if (a) await NexoStore.logActivity(a.id, "like", "Curtiu um post");
         toast("Curtido e registrado ✔");
@@ -160,6 +176,7 @@
           const editor = await waitFor(() => post.querySelector(SEL.editor));
           if (!editor) return toast("Abra a caixa de comentário");
           insertInto(editor, value);
+          NexoStore.bumpStat("comment");
           if (a.id) await NexoStore.logActivity(a.id, "comment", "Rascunho de comentário inserido");
         });
       }),
@@ -173,11 +190,138 @@
           const editor = await waitFor(() => post.querySelector(SEL.editor));
           if (!editor) return toast("Abra a caixa de comentário");
           insertInto(editor, value);
+          NexoStore.bumpStat("comment");
           if (a.id) await NexoStore.logActivity(a.id, "comment", "Comentário sugerido por IA inserido");
         });
       })
     );
     actions.after(bar);
+  }
+
+  // 2b) Comentários: responder com IA, curtir, e alimentar a fila de engajamento
+  const COMMENT = "article.comments-comment-entity, article.comments-comment-item, [data-id^='urn:li:comment']";
+  const ownLevel = (root, sel) => [...root.querySelectorAll(sel)].filter((x) => x.closest(COMMENT) === root);
+  const hashId = (s) => { let h = 0; for (const ch of s) h = (h * 31 + ch.charCodeAt(0)) | 0; return `h${(h >>> 0).toString(36)}`; };
+
+  function commentInfo(el) {
+    const a = ownLevel(el, 'a[href*="/in/"]')[0];
+    const authorId = NexoStore.idFromUrl(a?.href);
+    const name = (text(".comments-comment-meta__description-title, .comments-post-meta__name-text", el)
+      || ownLevel(el, 'a[href*="/in/"]').map((x) => x.innerText.trim()).find(Boolean) || "").split("\n")[0].trim();
+    const body = ownLevel(el, ".comments-comment-item__main-content, .comments-comment-entity__content, .update-components-text, .break-words")[0];
+    const txt = (body?.innerText || "").trim().slice(0, 2000);
+    const id = el.getAttribute("data-id") || hashId(`${authorId}|${txt}`);
+    return { id, author: { id: authorId, name }, text: txt };
+  }
+
+  function postUrlOf(post) {
+    if (/\/feed\/update\//.test(location.pathname)) return location.origin + location.pathname;
+    const urn = post?.getAttribute("data-urn") || post?.getAttribute("data-id");
+    return urn ? `https://www.linkedin.com/feed/update/${urn}/` : location.href;
+  }
+
+  async function replyToComment(el, value) {
+    ownLevel(el, 'button[aria-label*="Reply"], button[aria-label*="Responder"], button[aria-label*="responder"]')[0]?.click();
+    const editor = await waitFor(() => [...el.querySelectorAll(SEL.editor)].find((e) => e.isContentEditable));
+    if (!editor) { toast("Clique em Responder no comentário e tente de novo"); return false; }
+    insertInto(editor, value, { append: true });
+    const info = commentInfo(el);
+    NexoStore.bumpStat("reply");
+    await NexoStore.setQueueStatus(`c:${info.id}`, "done");
+    const { contacts } = await NexoStore.get();
+    if (info.author.id && contacts[info.author.id]) await NexoStore.logActivity(info.author.id, "reply", "Resposta a comentário inserida");
+    return true;
+  }
+
+  function enhanceComment(el) {
+    if (el.dataset.nexo) return;
+    const replyBtn = ownLevel(el, 'button[aria-label*="Reply"], button[aria-label*="Responder"], button[aria-label*="responder"]')[0];
+    if (!replyBtn) return; // ainda carregando
+    el.dataset.nexo = "1";
+    const bar = Object.assign(document.createElement("span"), { className: "nexo-comment-bar" });
+    bar.append(
+      chip("✨ Responder com IA", async (btn) => {
+        const info = commentInfo(el);
+        const post = el.closest("[data-nexo-post]") || document;
+        const { contacts } = await NexoStore.get();
+        pickAI(btn, "comment-reply", {
+          postText: text(SEL.postText, post).slice(0, 3000),
+          comment: { author: info.author.name, text: info.text },
+          contact: slim(contacts[info.author.id]) || { name: info.author.name }
+        }, (value) => replyToComment(el, value));
+      }),
+      chip("👍", () => {
+        const like = ownLevel(el, SEL.like)[0];
+        if (!like) return toast("Botão de curtir não encontrado");
+        if (like.getAttribute("aria-pressed") !== "true") { like.click(); NexoStore.bumpStat("like"); toast("Comentário curtido ✔"); }
+      })
+    );
+    replyBtn.parentElement.append(bar);
+  }
+
+  // Comentários sem resposta sua, nos SEUS posts, entram na fila do painel
+  async function scanCommentsQueue() {
+    const { me } = await NexoStore.getSettings();
+    if (!me?.id) return;
+    const items = [], answered = [];
+    document.querySelectorAll("[data-nexo-post]").forEach((post) => {
+      if (postAuthor(post)?.id !== me.id) return;
+      const postText = text(SEL.postText, post).slice(0, 3000);
+      [...post.querySelectorAll(COMMENT)].filter((c) => !c.parentElement.closest(COMMENT)).forEach((c) => {
+        const info = commentInfo(c);
+        if (!info.author.id || info.author.id === me.id || !info.text) return;
+        const repliedByMe = [...c.querySelectorAll(COMMENT)].some((r) => r !== c && commentInfo(r).author.id === me.id);
+        if (repliedByMe) return answered.push(`c:${info.id}`);
+        items.push({ id: `c:${info.id}`, kind: "comment", url: postUrlOf(post), targetId: info.id, author: info.author, text: info.text, postText });
+      });
+    });
+    if (items.length) await NexoStore.enqueue(items);
+    for (const id of answered) await NexoStore.setQueueStatus(id, "done");
+  }
+
+  // DMs não lidas na lista de conversas entram na fila
+  const threadKey = () => `dm:${(/\/messaging\/thread\/[^/]+/.exec(location.pathname) || [""])[0]}`;
+  async function scanInboxQueue() {
+    if (!location.pathname.startsWith("/messaging")) return;
+    const items = [];
+    document.querySelectorAll('a[href*="/messaging/thread/"]').forEach((a) => {
+      const li = a.closest("li") || a;
+      const unread = li.querySelector(".msg-conversation-card__unread-count, .notification-badge--show, [class*='unread']")
+        || /não lida|unread/i.test(li.getAttribute("aria-label") || a.getAttribute("aria-label") || "");
+      if (!unread) return;
+      const path = (/\/messaging\/thread\/[^/?#]+/.exec(a.getAttribute("href")) || [])[0];
+      if (!path) return;
+      const lines = li.innerText.split("\n").map((l) => l.trim()).filter(Boolean);
+      const name = text(".msg-conversation-listitem__participant-names, .msg-conversation-card__participant-names", li) || lines[0] || "";
+      const snippet = text(".msg-conversation-card__message-snippet, .msg-conversation-card__message-snippet-body", li) || lines.at(-1) || "";
+      items.push({ id: `dm:${path}`, kind: "dm", url: `https://www.linkedin.com${path}/`, author: { name }, text: snippet.slice(0, 500) });
+    });
+    if (items.length) await NexoStore.enqueue(items);
+  }
+
+  // "Abrir e inserir" vindo do painel: quando o alvo aparecer na página, insere o rascunho
+  let pendingBusy = false;
+  async function handlePending() {
+    if (pendingBusy) return;
+    const p = await NexoStore.takePending();
+    if (!p || !location.href.startsWith(p.url.replace(/\/$/, ""))) return;
+    pendingBusy = true;
+    try {
+      if (p.kind === "comment") {
+        const el = [...document.querySelectorAll(COMMENT)].find((c) => commentInfo(c).id === p.targetId);
+        if (!el) return; // ainda não carregou: tenta no próximo scan
+        el.scrollIntoView({ block: "center" });
+        if (await replyToComment(el, p.text)) { await NexoStore.clearPending(); toast("Rascunho inserido: revise e envie ✔"); }
+      } else if (p.kind === "dm") {
+        const editor = document.querySelector(".msg-form__contenteditable, [contenteditable='true'][aria-label*='mensagem' i], [contenteditable='true'][aria-label*='message' i]");
+        if (!editor) return;
+        insertInto(editor, p.text);
+        NexoStore.bumpStat("dm");
+        await NexoStore.setQueueStatus(threadKey(), "done");
+        await NexoStore.clearPending();
+        toast("Rascunho inserido: revise e envie ✔");
+      }
+    } finally { pendingBusy = false; }
   }
 
   // 3) Mensagens: templates de DM no composer
@@ -201,6 +345,8 @@
         const editor = form.querySelector(".msg-form__contenteditable, [contenteditable='true']");
         if (!editor) return;
         insertInto(editor, value);
+        NexoStore.bumpStat("dm");
+        NexoStore.setQueueStatus(threadKey(), "done");
         if (conv.id) {
           if (!contacts[conv.id]) await NexoStore.upsertContact({ id: conv.id, name: conv.name, url: `https://www.linkedin.com/in/${conv.id}/` });
           await NexoStore.logActivity(conv.id, "dm", "Rascunho de DM inserido");
@@ -220,6 +366,8 @@
         const editor = form.querySelector(".msg-form__contenteditable, [contenteditable='true']");
         if (!editor) return;
         insertInto(editor, value);
+        NexoStore.bumpStat("dm");
+        NexoStore.setQueueStatus(threadKey(), "done");
         if (conv.id && contacts[conv.id]) await NexoStore.logActivity(conv.id, "dm", "Resposta sugerida por IA inserida");
       });
     });
@@ -272,7 +420,11 @@
       const host = ed.closest("form") || ed.parentElement;
       if (host && !host.closest("[data-nexo]")) enhanceComposer(host);
     });
+    document.querySelectorAll(COMMENT).forEach(enhanceComment);
     scanContactInfo();
+    scanCommentsQueue();
+    scanInboxQueue();
+    handlePending();
   };
   new MutationObserver(() => { if (!pending) { pending = true; setTimeout(scan, 400); } })
     .observe(document.body, { childList: true, subtree: true });

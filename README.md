@@ -1,13 +1,23 @@
-# Nexo — CRM para LinkedIn (extensão Chrome)
+# Nexo — Assistente de engajamento no LinkedIn (extensão Chrome)
 
-**Nexo**: o *nexo* entre você e sua rede. Você salva contatos, organiza o funil, curte e comenta posts e responde DMs com templates, tudo sem sair do LinkedIn.
+O Nexo cuida do que dá trabalho no LinkedIn: **responder comentários, curtir, comentar e responder DMs**, com rascunhos de IA no seu tom de voz. Você revisa e envia com um clique.
+
+## Como funciona
+1. **Caixa de entrada** no painel lateral, com comentários sem resposta nos **seus** posts e DMs não lidas. Cada item gera 3 respostas com IA. Você escolhe e edita uma, e o botão **Abrir e inserir** leva até o post ou a conversa com o rascunho já no campo.
+2. **Em cada comentário:** botões *✨ Responder com IA* (preserva a menção @nome) e *👍*.
+3. **Em cada post:** *✨ Comentar com IA*, *💬 Comentar com template*, *👍 Curtir* e *＋ Autor no CRM*.
+4. **Em cada DM:** *✨ Responder com IA*, que lê a conversa, e *⚡ Templates*.
+5. **Metas diárias** de curtidas, comentários, respostas e DMs, com progresso no topo do painel.
+6. **Pessoas e Pipeline:** um CRM leve de quem engaja com você, com notas, tags, follow-ups e exportação CSV.
+
+**Primeiro passo:** abra o seu próprio perfil no LinkedIn e clique em **⭐ Este sou eu**. É assim que o Nexo sabe quais posts são seus.
 
 ## Instalar (modo desenvolvedor)
 1. Abra `chrome://extensions` e ative **Modo do desenvolvedor**.
 2. Clique em **Carregar sem compactação** e selecione esta pasta.
 3. Fixe o ícone e clique nele para abrir o painel lateral.
 
-## Funcionalidades
+## Funcionalidades (detalhe)
 - **Salvar perfis em 1 clique**: barra flutuante em `/in/...`, com nome, cargo, foto e local.
 - **Feed**: em cada post aparecem os botões *＋ Autor no CRM*, *👍 Curtir* (curte e registra no histórico) e *💬 Comentar com template*.
 - **DMs**: o botão *⚡ Templates Nexo* no composer preenche `{firstName}`, `{headline}` e `{company}`.

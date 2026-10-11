@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Nexo — CRM para LinkedIn",
-  "version": "0.3.0",
-  "description": "Salve contatos do LinkedIn, organize em pipeline, use templates em DMs e comentários e nunca perca um follow-up.",
+  "name": "Nexo — Assistente de engajamento no LinkedIn",
+  "version": "0.4.0",
+  "description": "Responda comentários e DMs com IA, curta e comente com um clique e bata suas metas diárias de engajamento. Você sempre aprova antes de enviar.",
   "permissions": [
     "storage",
     "sidePanel",

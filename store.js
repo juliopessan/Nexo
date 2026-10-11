@@ -53,10 +53,65 @@ const NexoStore = (() => {
   }
   const getSettings = async () => (await chrome.storage.local.get("settings")).settings || {};
   const saveSettings = async (patch) => chrome.storage.local.set({ settings: { ...(await getSettings()), ...patch } });
+  // ---- Engajamento: fila (pessoal, não sincroniza), estatísticas do dia e "quem sou eu" ----
+  const today = () => new Date().toLocaleDateString("sv-SE"); // YYYY-MM-DD no fuso local
+  const DEFAULT_GOALS = { like: 10, comment: 5, reply: 10, dm: 5 };
+
+  async function getQueue() {
+    const { queue = {} } = await chrome.storage.local.get("queue");
+    return queue;
+  }
+  // Adiciona itens novos sem reabrir os que o usuário já resolveu ou ignorou
+  async function enqueue(items) {
+    const queue = await getQueue();
+    let added = 0, changed = false;
+    for (const it of items) {
+      const cur = queue[it.id];
+      if (cur) {
+        if (cur.status === "open" && cur.text !== it.text) { queue[it.id] = { ...cur, ...it, status: "open" }; changed = true; }
+        continue;
+      }
+      queue[it.id] = { ...it, status: "open", seenAt: Date.now() };
+      added++; changed = true;
+    }
+    if (!changed) return 0; // a página é varrida a cada mudança de DOM: não regrava à toa
+    // Mantém a fila enxuta: descarta itens resolvidos com mais de 14 dias
+    for (const [id, it] of Object.entries(queue)) if (it.status !== "open" && Date.now() - (it.doneAt || it.seenAt) > 14 * 864e5) delete queue[id];
+    await chrome.storage.local.set({ queue });
+    return added;
+  }
+  async function setQueueStatus(id, status) {
+    const queue = await getQueue();
+    if (!queue[id] || queue[id].status === status) return;
+    queue[id] = { ...queue[id], status, doneAt: Date.now() };
+    await chrome.storage.local.set({ queue });
+  }
+  async function bumpStat(kind) {
+    const { stats = {} } = await chrome.storage.local.get("stats");
+    const d = today();
+    stats[d] = { like: 0, comment: 0, reply: 0, dm: 0, ...stats[d] };
+    stats[d][kind] = (stats[d][kind] || 0) + 1;
+    for (const k of Object.keys(stats)) if (Date.now() - new Date(k).getTime() > 90 * 864e5) delete stats[k];
+    await chrome.storage.local.set({ stats });
+  }
+  async function getStats() {
+    const { stats = {} } = await chrome.storage.local.get("stats");
+    return { today: { like: 0, comment: 0, reply: 0, dm: 0, ...stats[today()] }, all: stats };
+  }
+  // Pedido de inserção para a próxima página aberta (fila → abrir item → rascunho já no campo)
+  const setPending = (p) => chrome.storage.local.set({ pendingInsert: { ...p, at: Date.now() } });
+  async function takePending() {
+    const { pendingInsert } = await chrome.storage.local.get("pendingInsert");
+    if (!pendingInsert || Date.now() - pendingInsert.at > 5 * 60_000) return null;
+    return pendingInsert;
+  }
+  const clearPending = () => chrome.storage.local.remove("pendingInsert");
+
   const fill = (body, c = {}) => body
     .replace(/\{firstName\}/g, (c.name || "").split(" ")[0] || "")
     .replace(/\{name\}/g, c.name || "")
     .replace(/\{headline\}/g, c.headline || "")
     .replace(/\{company\}/g, c.company || "");
-  return { STAGES, get, idFromUrl, upsertContact, patchContact, logActivity, deleteContact, saveTemplates, getSettings, saveSettings, fill };
+  return { STAGES, get, idFromUrl, upsertContact, patchContact, logActivity, deleteContact, saveTemplates, getSettings, saveSettings, fill,
+    DEFAULT_GOALS, getQueue, enqueue, setQueueStatus, bumpStat, getStats, setPending, takePending, clearPending };
 })();

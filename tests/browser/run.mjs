@@ -17,7 +17,10 @@ let aiCalls = 0;
 await ctx.route("https://www.linkedin.com/**", (route) => {
   const u = new URL(route.request().url());
   const newUi = u.searchParams.has("newui");
-  const body = u.pathname.startsWith("/in/") ? fx.profile
+  const body = u.pathname.startsWith("/feed/update/urn:li:activity:99") ? fx.myPost
+    : u.pathname.startsWith("/messaging") && u.searchParams.has("list") ? fx.inboxList
+    : u.pathname.startsWith("/messaging/thread/2-abc") ? fx.inboxList
+    : u.pathname.startsWith("/in/") ? fx.profile
     : u.pathname.startsWith("/messaging") ? (newUi ? fx.messagingNewUi : fx.messaging)
     : (newUi ? fx.feedNewUi : fx.feed);
   route.fulfill({ contentType: "text/html; charset=utf-8", body });
@@ -110,10 +113,46 @@ await page.waitForTimeout(400);
 const dm2 = await page.textContent('[aria-label="Escreva uma mensagem…"]');
 check(dm2.startsWith("Oi Carlos!"), `UI nova: template de DM inserido ("${dm2.slice(0, 30)}…")`);
 
+// 5) Engajamento: "Este sou eu" → comentários sem resposta nos MEUS posts e DMs não lidas entram na fila
+await page.goto("https://www.linkedin.com/in/julio-pessan/");
+await page.click("#nexo-profile-bar >> text=⭐ Este sou eu");
+await page.waitForTimeout(300);
+check((await storage("settings")).settings?.me?.id === "julio-pessan", "engajamento: 'Este sou eu' define o perfil do usuário");
+await page.goto("https://www.linkedin.com/feed/update/urn:li:activity:99/");
+await page.waitForSelector(".nexo-comment-bar", { timeout: 5000 }).catch(() => {});
+check((await page.$$(".nexo-comment-bar")).length === 3, `comentários: botões em cada comentário (${(await page.$$(".nexo-comment-bar")).length})`);
+await page.waitForTimeout(800);
+let { queue = {} } = await storage("queue");
+const open = Object.values(queue).filter((q) => q.status === "open" && q.kind === "comment");
+check(open.length === 1 && open[0].author.name === "Ana Costa", `fila: só o comentário sem resposta (${open.map((q) => q.author.name)})`);
+check(open[0]?.postText?.includes("Lançamos o Nexo"), "fila: guarda o texto do post como contexto");
+
+// Responder com IA direto no comentário: mantém a menção @nome e anexa o texto
+const ana = 'article[data-id="urn:li:comment:(activity:99,1)"]';
+await page.click(`${ana} >> text=✨ Responder com IA`);
+await page.click(".nexo-menu >> text=Sugestão IA um").catch(() => {});
+await page.waitForTimeout(500);
+const reply = await page.textContent(`${ana} > .reply-box [contenteditable]`);
+check(reply === "Ana Costa Sugestão IA um", `comentário: resposta inserida após a menção ("${reply}")`);
+({ queue = {} } = await storage("queue"));
+check(queue["c:urn:li:comment:(activity:99,1)"]?.status === "done", "fila: item marcado como feito após responder");
+await page.click(`${ana} .nexo-comment-bar >> text=👍`);
+check(await page.getAttribute(`${ana} button[aria-label^="Reagir"]`, "aria-pressed") === "true", "comentário: curtir aciona o botão nativo");
+
+// DMs não lidas
+await page.goto("https://www.linkedin.com/messaging/?list=1");
+await page.waitForTimeout(800);
+({ queue = {} } = await storage("queue"));
+const dms = Object.values(queue).filter((q) => q.kind === "dm");
+check(dms.length === 1 && dms[0].author.name === "Paula Nunes" && dms[0].text.includes("piloto"), `fila: só a DM não lida (${dms.map((q) => q.author.name)})`);
+
 // 4) Painel lateral
 const panel = watch(await ctx.newPage(), "panel");
 await panel.goto(`chrome-extension://${extId}/sidepanel.html`);
 await panel.waitForTimeout(500);
+check(await panel.isVisible("#inbox"), "painel: abre na Caixa de entrada");
+await panel.click("nav >> text=Pessoas");
+await panel.waitForTimeout(300);
 const names = await panel.$$eval("#list .card b", (els) => els.map((e) => e.textContent));
 check(["Julio Pessan", "Maria Silva", "Carlos Lima"].every((n) => names.includes(n)), `painel: lista mostra os contatos (${names})`);
 await panel.click("nav >> text=Pipeline");
@@ -122,11 +161,37 @@ await panel.dragAndDrop('.col[data-stage="Novo"] .card[data-id="julio-pessan"]',
 await panel.waitForTimeout(400);
 ({ contacts = {} } = await storage("contacts"));
 check(contacts["julio-pessan"].stage === "Reunião", `painel: arrastar muda etapa (${contacts["julio-pessan"].stage})`);
-await panel.click("nav >> text=Contatos");
+await panel.click("nav >> text=Pessoas");
 await panel.click('#list .card[data-id="maria-silva"]');
 const hist = await panel.textContent("#detail");
 check(hist.includes("Curtiu um post") && hist.includes("Comentário sugerido por IA inserido"), "painel: histórico registra curtida e comentário");
 await panel.click("#back");
+
+// Caixa de entrada: reabre o comentário (para testar o fluxo do painel), gera rascunhos e "Abrir e inserir"
+await sw.evaluate(() => chrome.storage.local.get("queue").then(({ queue }) => {
+  queue["c:urn:li:comment:(activity:99,1)"].status = "open"; return chrome.storage.local.set({ queue }); }));
+await panel.click("nav >> text=Caixa de entrada");
+await panel.waitForTimeout(300);
+const qNames = await panel.$$eval(".qi header b", (els) => els.map((e) => e.textContent));
+check(qNames.includes("Ana Costa") && qNames.includes("Paula Nunes"), `inbox: lista comentário e DM (${qNames})`);
+const goalsTxt = await panel.textContent("#goals");
+check(/Respostas/.test(goalsTxt) && /DMs/.test(goalsTxt), `inbox: metas do dia visíveis (${goalsTxt.replace(/\s+/g, " ").trim()})`);
+const anaItem = '.qi[data-q="c:urn:li:comment:(activity:99,1)"]';
+await panel.click(`${anaItem} >> text=✨ Gerar respostas`);
+await panel.waitForSelector(`${anaItem} .drafts button`, { timeout: 5000 }).catch(() => {});
+await panel.click(`${anaItem} .drafts >> text=Sugestão IA dois`);
+await panel.fill(`${anaItem} textarea`, "Funciona sim, Ana! Te mostro numa call?");
+await page.goto("https://www.linkedin.com/feed/");
+await page.bringToFront();
+await panel.click(`${anaItem} >> text=Abrir e inserir`);
+await page.waitForURL(/activity:99/, { timeout: 5000 }).catch(() => {});
+await page.waitForTimeout(1500);
+const inserted = await page.textContent(`${ana} > .reply-box [contenteditable]`).catch(() => "");
+check(inserted === "Ana Costa Funciona sim, Ana! Te mostro numa call?", `abrir e inserir: rascunho editado chega no comentário ("${inserted}")`);
+const { stats = {} } = await storage("stats");
+const st = Object.values(stats)[0] || {};
+check(st.reply === 2 && st.like >= 3 && st.comment >= 2 && st.dm >= 2, `metas: contagem do dia (${JSON.stringify(st)})`);
+
 await panel.click("nav >> text=Config");
 check(await panel.isVisible("#serverForm"), "painel: aba Config abre");
 

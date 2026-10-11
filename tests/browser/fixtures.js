@@ -54,3 +54,42 @@ export const messagingNewUi = `<!doctype html><html><body><main>
   <a href="https://www.linkedin.com/in/carlos-lima/">Carlos Lima</a>
   <div class="q81"><div contenteditable="true" aria-label="Escreva uma mensagem…"></div></div>
 </main></body></html>`;
+
+// Post do próprio usuário com 2 comentários: Ana (sem resposta) e Bruno (já respondido por Julio)
+const comment = (urn, slug, name, body, inner = "") => `
+  <article class="comments-comment-entity" data-id="${urn}">
+    <a href="https://www.linkedin.com/in/${slug}/"><span class="comments-comment-meta__description-title">${name}</span></a>
+    <div class="comments-comment-item__main-content">${body}</div>
+    <div class="comments-comment-social-bar">
+      <button aria-label="Reagir com Gostei ao comentário de ${name}" aria-pressed="false" onclick="this.setAttribute('aria-pressed','true')">Gostei</button>
+      <button aria-label="Responder ao comentário de ${name}" onclick="var b=this.closest('article').querySelector(':scope > .reply-box');b.hidden=false;var e=b.querySelector('[contenteditable]');if(!e.textContent)e.textContent='${name}';">Responder</button>
+    </div>
+    <div class="reply-box" hidden><div contenteditable="true" role="textbox"></div></div>
+    ${inner}
+  </article>`;
+export const myPost = `<!doctype html><html><body><main>
+  <div data-urn="urn:li:activity:99">
+    <a class="update-components-actor__meta-link" href="https://www.linkedin.com/in/julio-pessan/">
+      <span class="update-components-actor__title"><span aria-hidden="true">Julio Pessan</span></span></a>
+    <div class="update-components-text">Lançamos o Nexo: um assistente de engajamento para LinkedIn.</div>
+    <div class="feed-shared-social-action-bar"><button aria-label="React Like" aria-pressed="false">Gostei</button><button aria-label="Comment">Comentar</button></div>
+    <section>
+      ${comment("urn:li:comment:(activity:99,1)", "ana-costa", "Ana Costa", "Que ideia boa! Funciona com Sales Navigator?")}
+      ${comment("urn:li:comment:(activity:99,2)", "bruno-reis", "Bruno Reis", "Parabéns pelo lançamento!",
+        comment("urn:li:comment:(activity:99,3)", "julio-pessan", "Julio Pessan", "Valeu, Bruno!"))}
+    </section>
+  </div>
+</main></body></html>`;
+
+export const inboxList = `<!doctype html><html><body><main>
+  <ul>
+    <li class="msg-conversation-listitem"><a href="/messaging/thread/2-abc/">
+      <h3 class="msg-conversation-listitem__participant-names">Paula Nunes</h3>
+      <p class="msg-conversation-card__message-snippet">Oi Julio, vamos marcar aquela conversa sobre o piloto?</p>
+      <span class="msg-conversation-card__unread-count">1</span></a></li>
+    <li class="msg-conversation-listitem"><a href="/messaging/thread/2-lida/">
+      <h3 class="msg-conversation-listitem__participant-names">Rui Lido</h3>
+      <p class="msg-conversation-card__message-snippet">Combinado, obrigado!</p></a></li>
+  </ul>
+  <form class="msg-form"><div class="msg-form__contenteditable" contenteditable="true"></div></form>
+</main></body></html>`;
