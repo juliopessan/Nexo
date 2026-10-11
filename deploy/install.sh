@@ -36,7 +36,9 @@ else
   echo "OK: $DOMAIN -> $DNSIP"
 fi
 
+NEW_ENV=""
 if [ ! -f .env ]; then
+  NEW_ENV=1
   echo "==> Gerando .env com segredos aleatórios"
   umask 077
   cat > .env <<ENV
@@ -148,5 +150,9 @@ if [ -f docker-compose.traefik.yml ]; then
 fi
 echo "Teste: curl https://$DOMAIN/health"
 echo "Na extensão (Config): servidor https://$DOMAIN"
-echo "Código de cadastro (fundadores): $(grep ^SIGNUP_CODE= .env | cut -d= -f2)"
-echo "Guarde-o; ele também fica em $DIR/deploy/.env"
+if [ -n "$NEW_ENV" ]; then
+  echo "Código de cadastro (fundadores): $(grep ^SIGNUP_CODE= .env | cut -d= -f2)"
+  echo "Guarde-o; ele também fica em $DIR/deploy/.env"
+else
+  echo "Código de cadastro: inalterado (veja com: grep ^SIGNUP_CODE= $DIR/deploy/.env)"
+fi
