@@ -138,7 +138,7 @@ const routes = [
     rateLimit(`auth:${clientIp(req)}`);
     rateLimit(`login:${email}`, 20, 60 * 60_000);
     const { rows } = await pool.query("select id, email, password_hash from nexo_users where email = $1", [email]);
-    if (!rows[0] || !isStr(b.password, 200) || !verifyPassword(b.password, rows[0].password_hash)) throw new HttpError(401, "E-mail ou senha incorretos.");
+    if (!rows[0] || !isStr(b.password, 200) || !verifyPassword(b.password, rows[0].password_hash)) throw new HttpError(401, "E-mail ou senha incorretos. Ainda não tem conta? Use a aba Criar conta.");
     return { token: await issueSession(pool, rows[0].id), user: { id: rows[0].id, email: rows[0].email } };
   }],
 

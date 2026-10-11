@@ -279,6 +279,43 @@ check(await panel.isVisible(`${laura} >> text=Recrutador`) && await panel.isVisi
 check((await panel.inputValue(`${laura} textarea`)).startsWith("Thanks Laura"), "ponte: rascunho da triagem já pronto para 'Abrir e inserir'");
 check(!(await panel.isVisible('.qi[data-q^="t:"] >> text=✨ Gerar respostas')), "ponte: convite sem botão de gerar");
 
+// 8) Cadastro no servidor real (quando há DATABASE_URL): Enter na aba "Criar conta" cria a conta
+if (process.env.DATABASE_URL) {
+  process.env.SIGNUP_CODE = "codigo-fundador";
+  const srv = await import("../../server/index.js");
+  await srv.pool.query("drop table if exists nexo_records, nexo_team_members, nexo_teams, nexo_sessions, nexo_users cascade");
+  await srv.migrate();
+  await new Promise((r) => srv.server.listen(0, r));
+  const url = `http://127.0.0.1:${srv.server.address().port}`;
+  await sw.evaluate((url) => chrome.storage.local.get("settings").then(({ settings }) => chrome.storage.local.set({ settings: { ...settings, serverUrl: url } })), url);
+  await panel.reload();
+  await panel.click("nav >> text=Config");
+  await panel.waitForSelector("#authForm", { timeout: 5000 });
+  check(await panel.isVisible('#authMode button.on >> text=Criar conta'), "cadastro: abre na aba Criar conta");
+  await panel.fill('#authForm [name="email"]', "julio.pessan.pessan@gmail.com");
+  await panel.fill('#authForm [name="password"]', "senha-bem-forte");
+  await panel.fill('#authForm [name="signupCode"]', "codigo-fundador");
+  await panel.press('#authForm [name="signupCode"]', "Enter");
+  await panel.waitForTimeout(1500);
+  let st = (await storage("settings")).settings;
+  check(st.session?.email === "julio.pessan.pessan@gmail.com", `cadastro: Enter cria a conta (${st.session?.email})`);
+  await panel.fill("#newTeam [name=name]", "Julio");
+  await panel.click("#newTeam button");
+  await panel.waitForTimeout(1500);
+  st = (await storage("settings")).settings;
+  check(st.teamName === "Julio" && st.lastSyncAt, "cadastro: equipe criada e primeira sincronização feita");
+  panel.once("dialog", (d) => d.dismiss());
+  await panel.click("#logout");
+  await panel.waitForTimeout(800);
+  await panel.click('#authMode >> text=Já tenho conta');
+  await panel.fill('#authForm [name="email"]', "julio.pessan.pessan@gmail.com");
+  await panel.fill('#authForm [name="password"]', "senha-bem-forte");
+  await panel.press('#authForm [name="password"]', "Enter");
+  await panel.waitForTimeout(1500);
+  check((await storage("settings")).settings.session?.email === "julio.pessan.pessan@gmail.com", "login: aba Já tenho conta entra com a conta criada");
+  srv.server.close(); await srv.pool.end();
+}
+
 check(errors.length === 0, `sem erros de JS (${errors.length})`);
 errors.forEach((e) => console.log("   ", e));
 await ctx.close();

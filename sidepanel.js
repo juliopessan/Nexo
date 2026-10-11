@@ -240,19 +240,26 @@ async function renderConfig() {
   const box = $("#teamBox");
   if (!st.serverUrl) { box.innerHTML = `<p class="hint">Informe o endereço do seu servidor Nexo para usar em equipe.</p>`; return; }
   if (!st.session) {
-    box.innerHTML = `<form id="authForm">
+    // Duas abas explícitas: Enter sempre executa a ação da aba visível (antes, Enter disparava "Entrar")
+    const mode = box.dataset.mode || "register";
+    box.innerHTML = `<div class="row seg" id="authMode">
+        <button type="button" data-m="register" class="${mode === "register" ? "on" : ""}">Criar conta</button>
+        <button type="button" data-m="login" class="${mode === "login" ? "on" : ""}">Já tenho conta</button></div>
+      <form id="authForm">
         <label>E-mail<input name="email" type="email" required autocomplete="username"></label>
-        <label>Senha (mín. 10 caracteres)<input name="password" type="password" required minlength="10" autocomplete="current-password"></label>
-        <div class="row"><button name="mode" value="login">Entrar</button></div>
-        <details><summary>Criar conta</summary>
-          <label>Código de convite da equipe<input name="inviteCode"></label>
-          <label>…ou código de cadastro do servidor (fundadores)<input name="signupCode" type="password" autocomplete="off"></label>
-          <button name="mode" value="register" class="ghost">Criar conta</button>
-        </details></form>`;
+        <label>Senha${mode === "register" ? " (nova, mín. 10 caracteres)" : ""}<input name="password" type="password" required minlength="10" autocomplete="${mode === "register" ? "new-password" : "current-password"}"></label>
+        ${mode === "register" ? `
+        <label>Código de cadastro do servidor (fundadores)<input name="signupCode" type="password" autocomplete="off"></label>
+        <label>…ou código de convite de uma equipe<input name="inviteCode" autocomplete="off"></label>
+        <p class="hint">Preencha um dos dois códigos.</p>` : ""}
+        <button>${mode === "register" ? "Criar conta" : "Entrar"}</button>
+      </form>`;
+    box.querySelectorAll("#authMode button").forEach((b) => b.onclick = () => { box.dataset.mode = b.dataset.m; render(); });
     $("#authForm").onsubmit = (e) => {
       e.preventDefault();
       const f = Object.fromEntries(new FormData(e.target));
-      run(ask(e.submitter.value === "register"
+      if (mode === "register" && !f.signupCode.trim() && !f.inviteCode.trim()) return alert("Informe o código de cadastro ou um código de convite.");
+      run(ask(mode === "register"
         ? { type: "register", email: f.email, password: f.password, inviteCode: f.inviteCode.trim(), signupCode: f.signupCode.trim() }
         : { type: "login", email: f.email, password: f.password }));
     };
