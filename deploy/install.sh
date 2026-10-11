@@ -60,12 +60,52 @@ else
   PROFILE="--profile caddy"
 fi
 
+# Traefik em container (comum em VPS Hostinger): roteia o domínio para a API via labels do Docker.
+COMPOSE="docker compose"
+if [ -z "$PROFILE" ] && [ "${OWNER:-}" = traefik ]; then
+  TCID=$(docker ps --format '{{.ID}} {{.Image}}' | awk 'tolower($2) ~ /traefik/ {print $1; exit}')
+  if [ -n "$TCID" ]; then
+    ARGS=$(docker inspect -f '{{join .Args " "}} {{join .Config.Cmd " "}}' "$TCID" | tr ' ' '\n')
+    # entrypoint HTTPS (:443) e resolver ACME, pelos argumentos do Traefik; senão os nomes mais comuns
+    EP=$(echo "$ARGS" | sed -n 's/^--entrypoints\.\([^.]*\)\.address=.*:443$/\1/p' | head -1)
+    CR=$(echo "$ARGS" | sed -n 's/^--certificatesresolvers\.\([^.]*\)\.acme.*/\1/p' | head -1)
+    EP=${TRAEFIK_ENTRYPOINT:-${EP:-websecure}}
+    CR=${TRAEFIK_CERTRESOLVER:-${CR:-letsencrypt}}
+    NETMODE=$(docker inspect -f '{{.HostConfig.NetworkMode}}' "$TCID")
+    NET=""
+    [ "$NETMODE" != host ] && NET=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$TCID" | awk '{print $1}')
+    echo "==> Traefik em container ($TCID): entrypoint=$EP certresolver=$CR rede=${NET:-host}"
+    {
+      echo "services:"
+      echo "  api:"
+      echo "    labels:"
+      echo "      traefik.enable: \"true\""
+      echo "      traefik.http.routers.nexo.rule: \"Host(\`$DOMAIN\`)\""
+      echo "      traefik.http.routers.nexo.entrypoints: \"$EP\""
+      echo "      traefik.http.routers.nexo.tls: \"true\""
+      echo "      traefik.http.routers.nexo.tls.certresolver: \"$CR\""
+      echo "      traefik.http.services.nexo.loadbalancer.server.port: \"8787\""
+      if [ -n "$NET" ]; then
+        echo "      traefik.docker.network: \"$NET\""
+        echo "    networks: [default, edge]"
+        echo "networks:"
+        echo "  edge:"
+        echo "    external: true"
+        echo "    name: $NET"
+      fi
+    } > docker-compose.traefik.yml
+  else
+    echo "Traefik roda fora do Docker: adicione um router no arquivo de configuração dele apontando para http://127.0.0.1:8787"
+  fi
+fi
+[ -f docker-compose.traefik.yml ] && COMPOSE="docker compose -f docker-compose.yml -f docker-compose.traefik.yml"
+
 echo "==> Subindo containers"
-docker compose $PROFILE up -d --build --remove-orphans
+$COMPOSE $PROFILE up -d --build --remove-orphans
 
 echo "==> Aguardando a API"
 i=0
-until docker compose exec -T api wget -qO- http://127.0.0.1:8787/health >/dev/null 2>&1; do
+until $COMPOSE exec -T api wget -qO- http://127.0.0.1:8787/health >/dev/null 2>&1; do
   i=$((i+1)); [ $i -gt 30 ] && { echo "API não respondeu. Veja: docker compose logs api"; exit 1; }; sleep 2
 done
 
@@ -93,6 +133,14 @@ if [ -z "$PROFILE" ]; then
   echo "Teste local agora: curl http://127.0.0.1:8787/health"
 fi
 echo
+if [ -f docker-compose.traefik.yml ]; then
+  echo "==> Testando HTTPS via Traefik (o certificado pode levar até 1 min)"
+  i=0
+  until curl -fsS --max-time 5 "https://$DOMAIN/health" >/dev/null 2>&1; do
+    i=$((i+1)); [ $i -gt 12 ] && { echo "HTTPS ainda não respondeu. Diagnóstico: docker logs --tail 50 $TCID 2>&1 | grep -i -E 'nexo|acme|error'"; break; }; sleep 5
+  done
+  [ $i -le 12 ] && echo "OK: https://$DOMAIN/health respondeu com certificado válido."
+fi
 echo "Teste: curl https://$DOMAIN/health"
 echo "Na extensão (Config): servidor https://$DOMAIN"
 echo "Código de cadastro (fundadores): $(grep ^SIGNUP_CODE= .env | cut -d= -f2)"
